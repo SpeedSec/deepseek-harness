@@ -100,14 +100,26 @@ describe('BlockAssembler', () => {
     expect(assembler.blocks()).toEqual([{ type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' }])
   })
 
-  it('assembles tool-call with generated id fallback when no id provided', () => {
+  it('refuses a tool call without an id or name instead of fabricating its identity', () => {
     const assembler = new BlockAssembler()
     assembler.push({ type: 'tool-call-delta', index: 0, argumentsDelta: '{}' } as StreamChunk)
-    // No id and no name provided — uses fallback id `call-{index}` and empty name
-    const blocks = assembler.blocks()
-    expect(blocks).toEqual([
-      { type: 'tool-call', id: CallId('call-0'), name: '', arguments: '{}' },
-    ])
+    expect(() => assembler.blocks()).toThrow(expect.objectContaining({
+      code: 'MALFORMED_RESPONSE',
+      message: 'model response contained a tool call without a non-empty id',
+    }))
+  })
+
+  it('refuses a closed tool call with an empty name', () => {
+    const assembler = new BlockAssembler()
+    assembler.push({
+      type: 'block-end',
+      index: 0,
+      block: { type: 'tool-call', id: CallId('call-0'), name: '', arguments: '{}' },
+    })
+    expect(() => assembler.blocks()).toThrow(expect.objectContaining({
+      code: 'MALFORMED_RESPONSE',
+      message: 'model response contained a tool call without a non-empty name',
+    }))
   })
 
   it('exposes usage via the getter when a usage chunk was received', () => {

@@ -116,6 +116,20 @@ function IconTrash(): ReactNode {
 /** The two token counts edited as K/M-suffixed text behind a row's disclosure. */
 type CapacityField = 'contextWindow' | 'maxTokens'
 
+/** Canonical selector levels understood by the pi-ai adapter. */
+const REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+
+type ReasoningLevel = typeof REASONING_LEVELS[number]
+type ReasoningEfforts = Partial<Record<ReasoningLevel, string | null>>
+
+/** Read one configured reasoning map without treating `false` as a map. */
+function reasoningEffortsOf(model: ModelDraft): ReasoningEfforts | undefined {
+  const value = model['reasoningEfforts']
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value
+    : undefined
+}
+
 /**
  * What an empty capacity field is worth, shown as its placeholder so a row left
  * blank does not read as a model with no capacity at all.
@@ -210,7 +224,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     })
   }
 
-  const patch = (index: number, next: Record<string, string | number | undefined>): void => {
+  const patch = (index: number, next: Record<string, unknown>): void => {
     onChange(models.map((model, at) => {
       if (at !== index) return model
       // Rebuilt rather than spread over: an emptied optional field has to leave
@@ -225,6 +239,37 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         Object.entries({ ...model, ...next }).filter(([key]) => !cleared.has(key)),
       )
     }))
+  }
+
+  const inputMode = (model: ModelDraft): 'inherit' | 'text' | 'image' => {
+    const input = model['input']
+    if (!Array.isArray(input) || input.length === 0) return 'inherit'
+    return input.includes('image') ? 'image' : 'text'
+  }
+
+  const reasoningMode = (model: ModelDraft): 'inherit' | 'disabled' | 'levels' => {
+    if (model['reasoningEfforts'] === false) return 'disabled'
+    return reasoningEffortsOf(model) === undefined ? 'inherit' : 'levels'
+  }
+
+  const setReasoningMode = (index: number, mode: string): void => {
+    patch(index, {
+      reasoningEfforts: mode === 'inherit'
+        ? undefined
+        : mode === 'disabled'
+          ? false
+          : { off: null, low: 'low', medium: 'medium', high: 'high' },
+    })
+  }
+
+  const toggleReasoningLevel = (index: number, level: ReasoningLevel): void => {
+    const current = reasoningEffortsOf(models[index] ?? {}) ?? {}
+    const next = { ...current }
+    if (Object.hasOwn(next, level)) Reflect.deleteProperty(next, level)
+    else next[level] = level === 'off' ? null : level
+    patch(index, {
+      reasoningEfforts: Object.keys(next).some(key => key !== 'off') ? next : undefined,
+    })
   }
 
   const fetchModels = async (): Promise<void> => {
@@ -429,6 +474,60 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
                   />
                 </label>
+                <label className={styles['modelField']}>
+                  <span className={styles['modelFieldLabel']}>{t('modelInput')}</span>
+                  <select
+                    className={styles['input']}
+                    value={inputMode(model)}
+                    aria-label={`${t('modelInput')} ${index + 1}`}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      patch(index, {
+                        input: event.target.value === 'inherit'
+                          ? undefined
+                          : event.target.value === 'image' ? ['text', 'image'] : ['text'],
+                      })
+                    }}
+                  >
+                    <option value="inherit">{t('modelInputInherit')}</option>
+                    <option value="text">{t('modelInputText')}</option>
+                    <option value="image">{t('modelInputImage')}</option>
+                  </select>
+                </label>
+                <label className={styles['modelField']}>
+                  <span className={styles['modelFieldLabel']}>{t('modelReasoning')}</span>
+                  <select
+                    className={styles['input']}
+                    value={reasoningMode(model)}
+                    aria-label={`${t('modelReasoning')} ${index + 1}`}
+                    disabled={disabled}
+                    onChange={(event) => { setReasoningMode(index, event.target.value) }}
+                  >
+                    <option value="inherit">{t('modelReasoningInherit')}</option>
+                    <option value="disabled">{t('modelReasoningDisabled')}</option>
+                    <option value="levels">{t('modelReasoningLevels')}</option>
+                  </select>
+                </label>
+                {reasoningMode(model) === 'levels'
+                  ? (
+                    <fieldset className={styles['modelReasoningLevels']}>
+                      <legend className={styles['modelFieldLabel']}>{t('modelReasoningLevelHint')}</legend>
+                      {REASONING_LEVELS.map(level => (
+                        <label key={level} className={styles['modelReasoningLevel']}>
+                          <input
+                            type="checkbox"
+                            checked={Object.hasOwn(reasoningEffortsOf(model) ?? {}, level)}
+                            disabled={disabled || (level === 'off'
+                              && !REASONING_LEVELS.some(candidate => candidate !== 'off'
+                                && Object.hasOwn(reasoningEffortsOf(model) ?? {}, candidate)))}
+                            onChange={() => { toggleReasoningLevel(index, level) }}
+                          />
+                          <span>{level}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                  )
+                  : null}
               </div>
             )
             : null}

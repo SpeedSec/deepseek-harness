@@ -196,6 +196,26 @@ describe('protocolChoices', () => {
 })
 
 describe('model list editing', () => {
+  it('declares image input and selectable reasoning levels on a custom model', async () => {
+    const { mutate } = await mountSection()
+    openEditor('openai')
+
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'acme-vision' } })
+    expandModel(1)
+    fireEvent.change(screen.getByLabelText(`${en.modelInput} 1`), { target: { value: 'image' } })
+    fireEvent.change(screen.getByLabelText(`${en.modelReasoning} 1`), { target: { value: 'levels' } })
+    fireEvent.click(screen.getByLabelText('medium'))
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalled() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual([{
+      id: 'acme-vision',
+      input: ['text', 'image'],
+      reasoningEfforts: { off: null, low: 'low', high: 'high' },
+    }])
+  })
+
   it('adds, edits, and removes rows without storing emptied optional fields', async () => {
     const { mutate } = await mountSection()
     openEditor('openai')

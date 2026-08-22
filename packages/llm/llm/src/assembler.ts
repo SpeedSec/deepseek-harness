@@ -6,7 +6,8 @@
  * @module @deepseek-ai/dsh-llm/assembler
  */
 
-import { CallId } from './brand.ts'
+import { requireToolCallIdentity } from './llm-error.ts'
+import type { CallId } from './brand.ts'
 import { assertNever } from './never.ts'
 import { createMessage } from './message.ts'
 import type { Message, MessageSource } from './message.ts'
@@ -104,16 +105,20 @@ export class BlockAssembler {
     return partial
   }
 
-  private assemble(partial: PartialBlock, index: number): ContentBlock {
-    if (partial.block) return partial.block
+  private assemble(partial: PartialBlock): ContentBlock {
+    const block = partial.block
+    if (block?.type === 'tool-call') requireToolCallIdentity(block.id, block.name)
+    if (block) return block
     switch (partial.blockType) {
       case 'text': return { type: 'text', text: partial.text }
       case 'reasoning': return { type: 'reasoning', text: partial.text }
-      case 'tool-call': return {
-        type: 'tool-call',
-        id: partial.toolCallId ?? CallId(`call-${index}`),
-        name: partial.toolCallName ?? '',
-        arguments: partial.toolCallArguments,
+      case 'tool-call': {
+        const identity = requireToolCallIdentity(partial.toolCallId, partial.toolCallName)
+        return {
+          type: 'tool-call',
+          ...identity,
+          arguments: partial.toolCallArguments,
+        }
       }
       default: throw new Error(`cannot assemble incomplete block of type "${partial.blockType}"`)
     }
@@ -132,17 +137,18 @@ export class BlockAssembler {
    * and replay metadata both derive from this result, so they cannot disagree.
    */
   private assembled(): { blocks: ContentBlock[]; replay: ReplayEnvelope | undefined } {
-    const all = this.order.map(index => this.assemble(this.mustGet(index), index))
+    const partials = this.order.map(index => this.mustGet(index))
     const kept = this.finish.kind === 'max-tokens'
-      ? all.map(block => block.type !== 'tool-call')
+      ? partials.map(partial => (partial.block?.type ?? partial.blockType) !== 'tool-call')
       : undefined
-    const blocks = kept === undefined ? all : all.filter((_, position) => kept[position])
+    const blocks = partials.flatMap((partial, position) =>
+      kept?.[position] === false ? [] : [this.assemble(partial)])
     const envelope = this._replayState
     if (envelope?.blocks === undefined) return { blocks, replay: envelope }
-    if (envelope.blocks.length !== all.length) return { blocks, replay: undefined }
+    if (envelope.blocks.length !== partials.length) return { blocks, replay: undefined }
     return {
       blocks,
-      replay: kept === undefined || blocks.length === all.length
+      replay: kept === undefined || blocks.length === partials.length
         ? envelope
         : { response: envelope.response, blocks: envelope.blocks.filter((_, position) => kept[position]) },
     }
@@ -171,7 +177,7 @@ export class BlockAssembler {
         const partial = this.mustGet(index)
         const type = partial.block?.type ?? partial.blockType
         if (type !== 'text' && type !== 'reasoning') return undefined
-        return this.assemble(partial, index)
+        return this.assemble(partial)
       })
       .filter((block): block is ContentBlock =>
         (block?.type === 'text' || block?.type === 'reasoning') && block.text.trim() !== '')

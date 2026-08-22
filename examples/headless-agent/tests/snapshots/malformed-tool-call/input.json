@@ -1,0 +1,8 @@
+{
+  "steps": [
+    {
+      "op": "prompt",
+      "text": "recover from a malformed tool identity"
+    }
+  ]
+}

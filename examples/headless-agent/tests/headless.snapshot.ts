@@ -33,6 +33,7 @@ const ptyConfigPath = fileURLToPath(new URL('../pty.cordis.snapshot.yml', import
 const goalScenarioDir = join(snapshotsDir, 'goal-tools')
 const goalConfigPath = fileURLToPath(new URL('../goal.cordis.snapshot.yml', import.meta.url))
 const retryScenarioDir = join(snapshotsDir, 'provider-retry')
+const malformedToolScenarioDir = join(snapshotsDir, 'malformed-tool-call')
 const retryConfigPath = fileURLToPath(new URL('../retry.cordis.snapshot.yml', import.meta.url))
 const compactionScenarioDir = join(snapshotsDir, 'compaction-recovery')
 const compactionSessionFixture = join(compactionScenarioDir, 'session.jsonl')
@@ -338,11 +339,48 @@ describe('headless stream-json snapshots', () => {
         expect(retries[0]?.data).toMatchObject({
           provider: 'deepseek-official',
           mode: 'normal',
-          policyKey: '["normal",1,["RATE_LIMIT"],1,1,0]',
+          policyKey: '["normal",1,["MALFORMED_RESPONSE","RATE_LIMIT"],1,1,0]',
           retry: 1,
           maxRetries: 1,
           delayMs: 1,
           failure: { message: 'snapshot transient failure', code: 'RATE_LIMIT', status: 429 },
+        })
+      },
+    })
+
+    expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('retries a malformed provider tool identity before tool policy sees it', async () => {
+    const prompt = await scenarioPrompt(malformedToolScenarioDir, 'malformed-tool-call')
+    const streamExpected = join(malformedToolScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'malformed tool identity headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-malformed-tool-',
+      binScript,
+      libBinScript: binScript,
+      configPath: retryConfigPath,
+      binArgs: [retryConfigPath, prompt],
+      tsconfigPath,
+      env: {
+        DSH_SNAPSHOT: 'replay',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      prepare: (cwd) => { runCwd = cwd },
+      inspect: async (cwd) => {
+        const logs = await persistedLogs(cwd)
+        const records = parseJsonl(logs[0]?.content ?? '')
+        expect(records.filter(record => record.type === 'tool/call')).toHaveLength(0)
+        expect(records.find(record => record.type === 'llm/retry')?.data).toMatchObject({
+          retry: 1,
+          failure: {
+            message: 'model response contained a tool call without a non-empty name',
+            code: 'MALFORMED_RESPONSE',
+          },
         })
       },
     })

@@ -29,6 +29,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/models-settings', import
 const EMPTY_EXPECTED = join(SNAPSHOT_DIR, 'empty.expected.md')
 const CONFIGURED_EXPECTED = join(SNAPSHOT_DIR, 'configured.expected.md')
 const DECLARED_EXPECTED = join(SNAPSHOT_DIR, 'declared.expected.md')
+const CAPABILITIES_EXPECTED = join(SNAPSHOT_DIR, 'capabilities.expected.md')
 const DECLARED_EDIT_EXPECTED = join(SNAPSHOT_DIR, 'declared-edit.expected.md')
 const MODEL_PICKER_EXPECTED = join(SNAPSHOT_DIR, 'model-picker.expected.md')
 const NATIVE_DELETE_EXPECTED = join(SNAPSHOT_DIR, 'native-delete.expected.md')
@@ -230,12 +231,21 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(await dialog.getByLabel('推理强度').count()).toBe(0)
     await dialog.getByRole('button', { name: '添加模型' }).click()
     await dialog.getByLabel('模型 ID 1').fill('acme-large')
+    await dialog.getByRole('button', { name: '模型能力 1' }).click()
+    await dialog.getByLabel('接受的输入 1').selectOption('image')
+    await dialog.getByLabel('推理强度 1').selectOption('levels')
+    const capabilities = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(CAPABILITIES_EXPECTED, capabilities, MODE)
     await dialog.getByRole('button', { name: '创建提供方', exact: true }).click()
 
     const row = dialog.getByText('Acme Gateway', { exact: true }).first()
     await row.waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
     expect(document).toContain('acme-gateway:')
+    expect(document).toContain('input:')
+    expect(document).toContain('- image')
+    expect(document).toContain('reasoningEfforts:')
+    expect(document).toContain('medium: medium')
 
     // The tag follows the adapter's installed catalog: this route is in no
     // catalog, while minimax-cn is — even though both now have profiles.
@@ -316,7 +326,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'configured.expected.md', 'declared-edit.expected.md', 'declared.expected.md',
+      'capabilities.expected.md', 'configured.expected.md', 'declared-edit.expected.md', 'declared.expected.md',
       'delete.expected.md', 'empty.expected.md', 'model-picker.expected.md',
       'native-delete.expected.md',
     ])
