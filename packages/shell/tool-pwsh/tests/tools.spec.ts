@@ -202,7 +202,11 @@ class ConfiningFakeBash extends ShellExecutor {
 }
 
 /** Sandboxed composition: the shared policy service + a confining executor + the pwsh tool (+ optional approval). */
-async function setupSandboxed(withApproval = false) {
+async function setupSandboxed(
+  withApproval = false,
+  mode: 'read-only' | 'workspace-write' | 'danger-full-access' = 'read-only',
+  approvalPolicy: 'ask' | 'never' = 'ask',
+) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
@@ -210,9 +214,9 @@ async function setupSandboxed(withApproval = false) {
   await ctx.plugin(LocalJobRegistry)
   await ctx.plugin(ToolTasks)
   await ctx.plugin(BashEnvPlugin)
-  await ctx.plugin(SandboxPolicyService, {})
+  await ctx.plugin(SandboxPolicyService, { mode })
   await ctx.plugin(ConfiningFakeBash)
-  if (withApproval) await ctx.plugin(ApprovalService)
+  if (withApproval) await ctx.plugin(ApprovalService, { policy: approvalPolicy })
   await ctx.plugin(ToolPwsh)
   const bash = ctx.shell as ConfiningFakeBash
   return { ctx, bash }
@@ -553,7 +557,7 @@ describe('sandbox escalation through ctx.approval', () => {
   }
 
   it('advertises the sandbox fields, the escalation clause, and the confined-mode contracts', async () => {
-    const { ctx } = await setupSandboxed()
+    const { ctx } = await setupSandboxed(true)
     const schema = ctx.tools.schemas().find(item => item.name === 'pwsh')!
     const properties = schema.parameters.properties as Record<string, { enum?: string[] }>
     expect(properties['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
@@ -572,6 +576,34 @@ describe('sandbox escalation through ctx.approval', () => {
     }
   })
 
+  it('only advertises escalation when approval is available and hides it for approval=never', async () => {
+    const withoutApproval = await setupSandboxed()
+    const base = withoutApproval.ctx.tools.schemas().find(item => item.name === 'pwsh')!
+    expect(base.parameters.properties).not.toHaveProperty('sandbox_permissions')
+    const never = await setupSandboxed(true, 'read-only', 'never')
+    const hidden = never.ctx.tools.schemas().find(item => item.name === 'pwsh')!
+    expect(hidden.parameters.properties).not.toHaveProperty('sandbox_permissions')
+    expect(hidden.parameters.properties).not.toHaveProperty('justification')
+  })
+
+  it('executes normally at danger-full-access even with stale escalation fields', async () => {
+    const { ctx, bash } = await setupSandboxed(true, 'danger-full-access')
+    const prompted = vi.fn()
+    ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
+    const schema = ctx.tools.schemas().find(item => item.name === 'pwsh')!
+    expect(schema.parameters.properties).not.toHaveProperty('sandbox_permissions')
+    expect(schema.parameters.properties).not.toHaveProperty('justification')
+    for (const args of [
+      { command: 'Write-Output ok', description: 'full', justification: 'stale' },
+      { command: 'Write-Output ok', description: 'full', sandbox_permissions: 'danger-full-access' },
+    ]) {
+      const result = await call(ctx, 'pwsh', args, sandboxAgent('danger-full-access'))
+      expect(result.isError).toBe(false)
+    }
+    expect(bash.modes).toEqual(['danger-full-access', 'danger-full-access'])
+    expect(prompted).not.toHaveBeenCalled()
+  })
+
   it('the escalation fields and the confined-mode clauses stay out of sandbox-less compositions', async () => {
     const { ctx } = await setup()
     const schema = ctx.tools.schemas().find(item => item.name === 'pwsh')!
@@ -583,7 +615,7 @@ describe('sandbox escalation through ctx.approval', () => {
 
   it('rejects injected escalation without a sandbox and non-widening escalation without prompting', async () => {
     const plain = await setup()
-    expect(text(await call(plain.ctx, 'pwsh', escalate))).toContain('not available in this composition')
+    expect(text(await call(plain.ctx, 'pwsh', escalate))).toContain('not available under the current sandbox and approval policy')
 
     const { ctx } = await setupSandboxed(true)
     const prompted = vi.fn()
@@ -602,7 +634,7 @@ describe('sandbox escalation through ctx.approval', () => {
 
   it('fails closed when approval cannot be routed', async () => {
     const withoutService = await setupSandboxed()
-    expect(text(await call(withoutService.ctx, 'pwsh', escalate, sandboxAgent()))).toContain('no approval service')
+    expect(text(await call(withoutService.ctx, 'pwsh', escalate, sandboxAgent()))).toContain('not available under the current sandbox and approval policy')
 
     const withService = await setupSandboxed(true)
     expect(text(await call(withService.ctx, 'pwsh', escalate))).toContain('no agent to route')

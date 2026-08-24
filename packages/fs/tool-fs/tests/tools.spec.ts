@@ -788,14 +788,14 @@ describe('sandbox escalation API (write/edit)', () => {
     }
   }
 
-  async function setupConfining(opts: { approval?: boolean } = {}) {
+  async function setupConfining(opts: { approval?: boolean; approvalPolicy?: 'ask' | 'never'; mode?: SandboxMode } = {}) {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
-    await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write' })
+    await ctx.plugin(SandboxPolicyService, { mode: opts.mode ?? 'workspace-write' })
     await ctx.plugin(SandboxingFakeFs)
     await ctx.plugin(FsPolicy)
-    if (opts.approval === true) await ctx.plugin(ApprovalService)
+    if (opts.approval === true) await ctx.plugin(ApprovalService, { policy: opts.approvalPolicy ?? 'ask' })
     await ctx.plugin(ToolFs)
     return { ctx, fs: ctx.fs as SandboxingFakeFs }
   }
@@ -836,13 +836,28 @@ describe('sandbox escalation API (write/edit)', () => {
     }
   })
 
-  it('advertises the closed target vocabulary on write and edit under a confining backend', async () => {
-    const { ctx } = await setupConfining()
+  it('advertises the closed target vocabulary on write and edit when approval is available', async () => {
+    const { ctx } = await setupConfining({ approval: true })
     for (const name of ['write', 'edit'] as const) {
       const props = fsSchema(ctx, name).parameters.properties
-      expect(props['sandbox_permissions']?.enum).toEqual(['workspace-write', 'danger-full-access'])
+      expect(props['sandbox_permissions']?.enum).toEqual(['danger-full-access'])
       expect(props['justification']).toBeDefined()
     }
+  })
+
+  it('hides escalation fields when approval is never and tolerates stale fields at full access', async () => {
+    const never = await setupConfining({ approval: true, approvalPolicy: 'never' })
+    for (const name of ['write', 'edit'] as const) {
+      const props = fsSchema(never.ctx, name).parameters.properties
+      expect(props['sandbox_permissions']).toBeUndefined()
+      expect(props['justification']).toBeUndefined()
+    }
+    const full = await setupConfining({ approval: true, mode: 'danger-full-access' })
+    const result = await call(full.ctx, 'write', {
+      file_path: 'a.txt', content: 'x', justification: 'stale',
+    }, escalationAgent())
+    expect(result.isError).toBe(false)
+    expect(full.fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project') }])
   })
 
   it('a plain write stamps the default mode with the calling session root', async () => {
@@ -858,7 +873,7 @@ describe('sandbox escalation API (write/edit)', () => {
   })
 
   it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
-    const { ctx, fs } = await setupConfining()
+    const { ctx, fs } = await setupConfining({ approval: true })
     fs.rejectWith = new FsError('denied', 'FS_SANDBOX_DENIED')
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
     expect(result.isError).toBe(true)
@@ -903,7 +918,7 @@ describe('sandbox escalation API (write/edit)', () => {
     const { ctx } = await setupConfining()
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'danger-full-access', justification: 'why' }, escalationAgent())
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('no approval service is composed')
+    expect(text(result)).toContain('not available under the current sandbox and approval policy')
   })
 
   it('escalation with an approval service but no agent fails closed', async () => {
@@ -924,6 +939,6 @@ describe('sandbox escalation API (write/edit)', () => {
     const { ctx } = await setup()
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'x', sandbox_permissions: 'workspace-write', justification: 'why' }, escalationAgent())
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('not available in this composition')
+    expect(text(result)).toContain('not available under the current sandbox and approval policy')
   })
 })

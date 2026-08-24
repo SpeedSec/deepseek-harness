@@ -31,7 +31,7 @@ import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-shell-env'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { ESCALATION_TARGETS, approveEscalation, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { WIDER_MODES, approveEscalation, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
 import { parseExitStatus } from '@deepseek-ai/dsh-shell'
@@ -84,7 +84,7 @@ interface PwshForegroundResult {
 }
 
 /* jscpd:ignore-start -- minimal mirror of dsh-tool-bash's validation and execute plumbing (Agent Note). */
-function validatePwshArgs(args: PwshToolArgs): void {
+function validatePwshArgs(args: PwshToolArgs, effectiveMode?: SandboxMode): void {
   if (args.command.trim().length === 0) {
     throw new Error('invalid command: expected a non-empty string')
   }
@@ -94,9 +94,11 @@ function validatePwshArgs(args: PwshToolArgs): void {
   if (args.timeoutMs !== undefined && (!Number.isFinite(args.timeoutMs) || args.timeoutMs <= 0)) {
     throw new Error(`invalid timeoutMs: expected a positive number, got ${JSON.stringify(args.timeoutMs)}`)
   }
-  // The escalation pairing (sandbox_permissions ⇔ justification, non-empty) is
-  // the shared rule both enforcing families validate identically.
-  validateEscalationArgs(args.sandbox_permissions, args.justification)
+  // Full access has no higher target. Ignore stale model-generated escalation
+  // metadata there; confined calls retain the shared fail-closed pairing rule.
+  if (effectiveMode !== 'danger-full-access') {
+    validateEscalationArgs(args.sandbox_permissions, args.justification)
+  }
 }
 /* jscpd:ignore-end */
 
@@ -196,11 +198,16 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
 export function apply(ctx: Context, config: Config = {}): void {
   const backgroundEnabled = config.enableRunInBackground ?? true
   const defaultMode = ctx.shell.sandboxMode
-  const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
   const sandboxPolicy: SandboxPolicyService | undefined = defaultMode === undefined ? undefined : ctx.get('sandboxPolicy')
   if (defaultMode !== undefined && sandboxPolicy === undefined) {
     throw new Error('tool-pwsh: the mounted bash executor confines but ctx.sandboxPolicy is missing')
   }
+  const approval = ctx.get('approval')
+  const escalationModes: readonly SandboxMode[] = sandboxPolicy !== undefined
+    && approval !== undefined
+    && approval.config.policy !== 'never'
+    ? WIDER_MODES[sandboxPolicy.defaultMode] ?? []
+    : []
   /* jscpd:ignore-end */
   /** Resolve the complete standing policy for this call when a confining executor is mounted. */
   const resolveSandboxPolicy = (exec: ToolExecution): SandboxExecutionPolicy | undefined =>
@@ -226,7 +233,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     standingPolicy: SandboxExecutionPolicy | undefined,
   ): Promise<SandboxMode> => {
     if (escalationModes.length === 0) {
-      throw new Error('sandbox_permissions is not available in this composition (no sandboxing executor to escalate)')
+      throw new Error('sandbox_permissions is not available under the current sandbox and approval policy')
     }
     const effectiveMode = (standingPolicy as SandboxExecutionPolicy).mode
     return approveEscalation(
@@ -346,10 +353,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     /* jscpd:ignore-start -- the execute path mirrors dsh-tool-bash's by design (see the pwsh-tool-and-executor Agent Note). */
     async execute(args: PwshToolArgs, exec) {
-      validatePwshArgs(args)
-      // Description is display metadata; workdir defaults to the caller's session.
       const standingPolicy = resolveSandboxPolicy(exec)
-      const approvedMode = args.sandbox_permissions !== undefined && args.justification !== undefined
+      validatePwshArgs(args, standingPolicy?.mode)
+      // Description is display metadata; workdir defaults to the caller's session.
+      // At full access, stale escalation fields are intentionally discarded:
+      // there is no wider permission to approve and the command remains valid.
+      const approvedMode = standingPolicy?.mode !== 'danger-full-access'
+        && args.sandbox_permissions !== undefined && args.justification !== undefined
         ? await approvePwshEscalation(args.sandbox_permissions, args.justification, exec, standingPolicy)
         : undefined
       const policy = approvedMode === undefined
