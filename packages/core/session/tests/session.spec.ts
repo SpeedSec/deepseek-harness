@@ -1418,6 +1418,33 @@ describe('SessionStore', () => {
     ])
   })
 
+  it('appends plugin lifecycle events as durable ignorable records', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('plugin-lifecycle'))
+    const observed: SessionEvent[] = []
+    ctx.on('session/event', (_session, event) => { observed.push(event) })
+
+    const started = session.appendPluginEvent('example/plugin-lifecycle', {
+      phase: 'started',
+      batchId: 'batch-1',
+      childSessionId: 'child-1',
+    })
+    expect(started).toMatchObject({
+      type: 'example/plugin-lifecycle',
+      data: { phase: 'started', batchId: 'batch-1', childSessionId: 'child-1' },
+      ignorable: true,
+      seq: 0,
+    })
+    expect(Object.isFrozen(started)).toBe(true)
+    expect(Object.isFrozen(started.data)).toBe(true)
+    expect(session.events).toEqual([started])
+    expect(observed).toEqual([started])
+
+    expect(() => session.appendPluginEvent('turn/start', { turn: 1 })).toThrow('already a core event')
+    expect(() => session.appendPluginEvent('example/plugin-lifecycle', undefined as never)).toThrow('non-JSON-serializable')
+  })
+
   it('runs internal dispatch validation on one frozen candidate before commit and resets after a veto', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)

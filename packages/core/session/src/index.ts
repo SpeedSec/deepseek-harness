@@ -14,7 +14,8 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
-import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, JsonValue, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import { KNOWN_SESSION_EVENT_TYPES } from './known-event-types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { deriveEventMessage, SurfaceManager } from './surface.ts'
 import type { SessionSurface } from './surface.ts'
@@ -631,8 +632,48 @@ export class Session {
       data: dataSnapshot,
       ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
     } as unknown as SessionEvent<T>)
-    this.surfaceManager.validateNext(event as SessionEvent)
+    return this.commitEvent(event)
+  }
 
+  /**
+   * Append one plugin-owned lifecycle event as an ignorable durable record.
+   *
+   * Plugin events are deliberately outside the core message vocabulary: they
+   * are persisted and replayed, but never enter derived model history. The
+   * `ignorable` envelope marker lets older harnesses skip the event safely.
+   * Plugins should merge their event into {@link SessionEventMap} for typed
+   * payloads, then use this method instead of forging a core event envelope.
+   *
+   * @param type - Plugin-owned event type; core event names are rejected.
+   * @param data - Lossless-JSON plugin payload.
+   * @returns The committed plugin event.
+   */
+  appendPluginEvent<T extends string>(type: T, data: JsonValue): SessionEvent {
+    if (type.length === 0) throw new Error('plugin session event type must be a non-empty string')
+    if (KNOWN_SESSION_EVENT_TYPES.has(type)) {
+      throw new Error(`plugin session event type "${type}" is already a core event`)
+    }
+    const dataSnapshot = snapshotJsonValue(data)
+    if (dataSnapshot === undefined) {
+      throw new Error(`plugin session event "${type}" carries non-JSON-serializable data`)
+    }
+    const event = deepFreeze({
+      type,
+      seq: this.log.length,
+      time: Date.now(),
+      data: dataSnapshot,
+      ignorable: true,
+    } as unknown as SessionEvent)
+    return this.commitEvent(event)
+  }
+
+  /** Commit one already-snapshotted event and publish it to the persistence feed. */
+  private commitEvent<T extends SessionEvent>(event: T): T {
+    this.surfaceManager.validateNext(event)
+    const entry = attachments.get(this)
+    if (entry?.appending) {
+      throw new Error('session append cannot reenter while another append is being published')
+    }
     if (entry !== undefined) entry.appending = true
     try {
       let callbacks: SessionCallback[] | undefined
@@ -640,7 +681,7 @@ export class Session {
       if (entry !== undefined) {
         callbacks = collectSessionCallbacks(entry.emitCtx, [entry.carrier, 'session/event', ...callbackArgs])
       }
-      this.log.push(event as SessionEvent)
+      this.log.push(event)
       this.eventsSnapshot = undefined
       if (callbacks !== undefined && entry !== undefined) {
         invokeContainedSessionObservers(entry.emitCtx, 'session/event', entry.id, callbackArgs, callbacks)

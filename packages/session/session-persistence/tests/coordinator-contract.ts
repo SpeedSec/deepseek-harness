@@ -242,6 +242,31 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('persists an ignorable plugin lifecycle event through the live Session write path', async () => {
+      const fix = await makeFixture()
+      const { ctx, fiber } = await freshCtx(fix)
+      try {
+        const session = ctx.sessions.create(SessionId('plugin-lifecycle'), { meta: { cwd: WORK } })
+        const event = session.appendPluginEvent('example/plugin-lifecycle', {
+          phase: 'started',
+          batchId: 'batch-1',
+          childSessionId: 'child-1',
+        })
+        await ctx.sessions.flush(session)
+
+        const loaded = await ctx.sessionPersistence.load(SessionId('plugin-lifecycle'))
+        expect(loaded.events).toContainEqual(event)
+        expect(loaded.events.find(candidate => candidate.seq === event.seq)).toMatchObject({
+          type: 'example/plugin-lifecycle',
+          data: { phase: 'started', batchId: 'batch-1', childSessionId: 'child-1' },
+          ignorable: true,
+        })
+      } finally {
+        await fiber.dispose()
+        await fix.cleanup()
+      }
+    })
+
     it('rejects crash-repair load while a live session owns the persisted prefix', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)
