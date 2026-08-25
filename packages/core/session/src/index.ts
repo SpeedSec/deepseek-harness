@@ -14,7 +14,7 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, SessionId } from './types.ts'
 import type { TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
-import type { CreateSessionOptions, EpochHeader, JsonValue, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
+import type { CreateSessionOptions, EpochHeader, PrepareSessionOptions, RequestContext, SessionEvent, SessionEventMap, SessionEventType, SessionHeader, SurfaceIntent, SurfaceEventType } from './types.ts'
 import { KNOWN_SESSION_EVENT_TYPES } from './known-event-types.ts'
 import { snapshotJsonValue } from './json.ts'
 import { deriveEventMessage, SurfaceManager } from './surface.ts'
@@ -648,7 +648,7 @@ export class Session {
    * @param data - Lossless-JSON plugin payload.
    * @returns The committed plugin event.
    */
-  appendPluginEvent<T extends string>(type: T, data: JsonValue): SessionEvent {
+  appendPluginEvent<T extends string>(type: T, data: unknown): SessionEvent {
     if (type.length === 0) throw new Error('plugin session event type must be a non-empty string')
     if (KNOWN_SESSION_EVENT_TYPES.has(type)) {
       throw new Error(`plugin session event type "${type}" is already a core event`)
