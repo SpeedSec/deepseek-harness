@@ -481,6 +481,20 @@ declare class Session {
     ...opts: T extends SurfaceEventType ? [opts: SurfaceIntent] : []
   ): SessionEvent<T>;
   /**
+   * Append one plugin-owned lifecycle event as an ignorable durable record.
+   *
+   * Plugin events are deliberately outside the core message vocabulary: they
+   * are persisted and replayed, but never enter derived model history. The
+   * `ignorable` envelope marker lets older harnesses skip the event safely.
+   * Plugins should merge their event into {@link SessionEventMap} for typed
+   * payloads, then use this method instead of forging a core event envelope.
+   *
+   * @param type - Plugin-owned event type; core event names are rejected.
+   * @param data - Lossless-JSON plugin payload.
+   * @returns The committed plugin event.
+   */
+  appendPluginEvent<T extends string>(type: T, data: unknown): SessionEvent;
+  /**
    * The {@link EpochHeader} in force after the log's last header event — the
    * header the NEXT request will be compared against — or undefined before
    * the first `request/header` snapshot. The live, incrementally-maintained
