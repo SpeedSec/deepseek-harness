@@ -164,6 +164,20 @@ export interface SubagentFollowupOptions {
  */
 type ActivationState = 'running' | 'waiting' | 'settled'
 
+/** Public residency state for one continuable Child handle. */
+export type ContinuableStatus = ActivationState | 'settling' | 'inactive'
+
+/** Outcome of waiting for one continuable Child to release its live handle. */
+export type ContinuableWaitStatus = 'settled' | 'inactive' | 'timeout' | 'aborted'
+
+/** Optional cancellation and bounded-wait controls for {@link waitContinuable}. */
+export interface ContinuableWaitOptions {
+  /** Stop waiting without interrupting the Child. */
+  readonly signal?: AbortSignal
+  /** Maximum wait in milliseconds. Omit for an unbounded wait. */
+  readonly timeoutMs?: number
+}
+
 /**
  * Hooks the manager needs from the owning service. Declared here, by the
  * dependent, so the manager states exactly what it requires instead of
@@ -933,6 +947,79 @@ export class SubagentContinuationManager {
     if (activation.handle.agent.status === 'running' || activation.accepted.size > 0) return 'running'
     if (activation.ownedChildren.size > 0) return 'waiting'
     return 'settled'
+  }
+
+  /**
+   * Return the live residency state without loading or resuming a Child.
+   * @param childId - durable child session id to inspect.
+   * @returns current in-process state, or `inactive` when not resident.
+   */
+  status(childId: SessionId): ContinuableStatus {
+    const activation = this.activations.get(childId)
+    if (activation === undefined) return 'inactive'
+    if (activation.disposal !== undefined) return 'settling'
+    return this.stateOf(activation)
+  }
+
+  /**
+   * Wait for one resident Child's existing disposal transaction. Waiting is
+   * observe-only: timeout and caller cancellation never interrupt the Child.
+   * An absent Activation is reported as `inactive`; callers can use
+   * {@link followup} to cold-resume a persisted continuable Child.
+   * @param childId - durable child session id to observe.
+   * @param options - optional timeout and caller-abort signal.
+   * @returns settlement, inactivity, timeout, or caller-abort outcome.
+   */
+  async waitContinuable(childId: SessionId, options: ContinuableWaitOptions = {}): Promise<ContinuableWaitStatus> {
+    const signal = options.signal
+    if (signal?.aborted) return 'aborted'
+    const timeoutMs = options.timeoutMs
+    if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs < 0)) {
+      throw new SubagentError('continuable wait timeout must be a non-negative finite number', 'INVALID_WAIT_TIMEOUT')
+    }
+    const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs
+    while (true) {
+      const activation = this.activations.get(childId)
+      if (activation === undefined) return 'inactive'
+      const disposal = activation.disposal
+      if (disposal !== undefined) {
+        return await this.raceWait(disposal, signal, deadline)
+      }
+      const remaining = deadline === undefined ? undefined : Math.max(0, deadline - Date.now())
+      if (remaining === 0) return 'timeout'
+      const poked = activation.poke.promise
+      const idle = activation.handle.agent.whenIdle()
+      const outcome = await this.raceWait(Promise.race([idle, poked]), signal, deadline)
+      if (outcome !== 'settled') return outcome
+    }
+  }
+
+  /** Race one observation with caller cancellation and an optional deadline. */
+  private async raceWait<T>(
+    observed: Promise<T>,
+    signal: AbortSignal | undefined,
+    deadline: number | undefined,
+  ): Promise<ContinuableWaitStatus> {
+    if (signal?.aborted) return 'aborted'
+    const timeout = deadline === undefined ? undefined : Math.max(0, deadline - Date.now())
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let onAbort: (() => void) | undefined
+    const control = Promise.withResolvers<ContinuableWaitStatus>()
+    if (signal !== undefined) {
+      onAbort = () => control.resolve('aborted')
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+    if (timeout !== undefined) timer = setTimeout(() => control.resolve('timeout'), timeout)
+    try {
+      const result = await Promise.race([
+        observed.then(() => 'settled' as const),
+        control.promise,
+      ])
+      return result
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+      if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort)
+    }
   }
 
   /**

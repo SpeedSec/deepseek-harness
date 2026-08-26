@@ -180,6 +180,23 @@ function observeCancel(agent: Agent, callback: () => void): void {
 }
 
 describe('SubagentRuntime.startContinuable', () => {
+  it('exposes detached status and observe-only wait without taking over interruption', async () => {
+    const release = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('detached answer'), gate: release.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    expect(ctx.subagents.continuableStatus(started.childId)).toBe('running')
+    expect(await ctx.subagents.waitContinuable(started.childId, { timeoutMs: 1 })).toBe('timeout')
+    // Waiting never cancels the Child; the same handle remains observable.
+    expect(ctx.subagents.continuableStatus(started.childId)).toBe('running')
+
+    release.resolve(undefined)
+    expect(await ctx.subagents.waitContinuable(started.childId, { timeoutMs: 5_000 })).toBe('settled')
+    expect(ctx.subagents.continuableStatus(started.childId)).toBe('inactive')
+  })
+
   it('returns both identities at inbox acceptance, without waiting for the turn or the log', async () => {
     const { ctx, parent, adapter } = await setup([textResponse('first answer')])
     const enqueued: { id: MessageId; loggedYet: boolean }[] = []

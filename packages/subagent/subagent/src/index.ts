@@ -57,6 +57,9 @@ import SubagentContinuationManager from './continuation.ts'
 import type {
   ContinuableStart,
   ContinuableStartSpec,
+  ContinuableStatus,
+  ContinuableWaitOptions,
+  ContinuableWaitStatus,
   SubagentFollowupOptions,
   SubagentInterruptAuthority,
   SubagentReportOptions,
@@ -120,6 +123,9 @@ export type {
   SubagentReportMessageSource,
   SubagentReportOptions,
   SubagentSettledMessageSource,
+  ContinuableStatus,
+  ContinuableWaitOptions,
+  ContinuableWaitStatus,
 } from './continuation.ts'
 export type { ContinuableSetupContribution } from './activation-setup-registry.ts'
 export type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
@@ -254,6 +260,28 @@ export class SubagentRuntime extends Service {
    */
   interrupt(targetSessionId: SessionId, authority: SubagentInterruptAuthority): void {
     this.continuations?.interrupt(targetSessionId, authority)
+  }
+
+  /**
+   * Return the current in-process residency state for one continuable Child.
+   * @param childId - durable child session id to inspect.
+   * @returns current in-process state, or `inactive` when not resident.
+   */
+  continuableStatus(childId: SessionId): ContinuableStatus {
+    return this.continuations?.status(childId) ?? 'inactive'
+  }
+
+  /**
+   * Wait for an existing continuable Child to settle without interrupting it.
+   * @param childId - durable child session id to observe.
+   * @param options - optional timeout and caller-abort signal.
+   * @returns settlement, inactivity, timeout, or caller-abort outcome.
+   */
+  waitContinuable(childId: SessionId, options?: ContinuableWaitOptions): Promise<ContinuableWaitStatus> {
+    const manager = this.continuations
+    return manager === undefined
+      ? Promise.resolve('inactive')
+      : manager.waitContinuable(childId, options)
   }
 
   /**
