@@ -6,11 +6,14 @@
  * @module @deepseek-ai/dsh-llm
  */
 
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
+import { Remote, TypertRemoteFailure, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   GenerateOptions,
   LlmConfigurableProvider,
   LlmDiscoveredModel,
+  LlmFailure,
+  LlmImageRequestPricing,
   LlmModelContext,
   LlmModelDiscoveryRequest,
   LlmModelInfo,
@@ -22,20 +25,18 @@ import type {
 import { freezeMessage, type Message } from './message.ts'
 import { resolveRetryPolicy } from './retry-policy.ts'
 import type { ResolvedRetryPolicy } from './retry-policy.ts'
+import type { ProviderRequestId } from './brand.ts'
 import { callConfigEquals, deepFreeze } from './call-config.ts'
 import type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
-import type { CallId } from './brand.ts'
-import { INVALID_CREDENTIAL_CODE } from './error.ts'
+import { HarnessError, INVALID_CREDENTIAL_CODE } from './error.ts'
 import { normalizeLlmFailure } from './adapter-failure.ts'
 import { normalizeApiKey } from './api-key.ts'
 import { contentHasImage, projectImagesForTextModel } from './content.ts'
-import { LlmError, requireToolCallIdentity } from './llm-error.ts'
 
 export * from './attribution.ts'
 export * from './brand.ts'
 export * from './never.ts'
 export * from './error.ts'
-export * from './llm-error.ts'
 export * from './api-key.ts'
 export * from './types.ts'
 export * from './content.ts'
@@ -65,6 +66,56 @@ declare module '@deepseek-ai/cordis' {
      */
     'llm/stream'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
 
+  }
+}
+
+/** Structured provider facts and cause accepted by {@link LlmError}. */
+export interface LlmErrorOptions extends ErrorOptions {
+  /** Valid HTTP status observed at the provider boundary. */
+  status?: number
+  /** Positive finite provider-requested delay in milliseconds. */
+  providerRetryAfterMs?: number
+  /** Non-empty opaque provider request id. */
+  requestId?: ProviderRequestId
+}
+
+/**
+ * Typed error for LLM-related failures. Extends {@link HarnessError}, so the
+ * `code` string (e.g. `AUTH`, `RATE_LIMIT`, `NO_ADAPTER`) is shared taxonomy.
+ */
+export class LlmError extends HarnessError {
+  /** Serializable facts retained beside this live Error. */
+  readonly failure: LlmFailure
+
+  /**
+   * @param message - non-empty human-readable failure summary.
+   * @param code - non-empty stable provider-neutral machine code.
+   * @param options - optional cause and validated serializable provider facts.
+   */
+  constructor(message: string, code: string, options?: LlmErrorOptions) {
+    if (typeof message !== 'string' || message.length === 0) throw new Error('LlmError message must be a non-empty string')
+    if (typeof code !== 'string' || code.length === 0) throw new Error('LlmError code must be a non-empty string')
+    if (options?.status !== undefined
+      && (!Number.isInteger(options.status) || options.status < 100 || options.status > 599)) {
+      throw new Error('LlmError status must be an integer from 100 through 599')
+    }
+    if (options?.providerRetryAfterMs !== undefined
+      && (!Number.isFinite(options.providerRetryAfterMs) || options.providerRetryAfterMs <= 0)) {
+      throw new Error('LlmError providerRetryAfterMs must be a positive finite number')
+    }
+    if (options?.requestId !== undefined
+      && (typeof options.requestId !== 'string' || options.requestId.length === 0)) {
+      throw new Error('LlmError requestId must be a non-empty string')
+    }
+    super(message, code, options)
+    this.name = 'LlmError'
+    this.failure = Object.freeze({
+      message,
+      code,
+      ...options?.status === undefined ? {} : { status: options.status },
+      ...options?.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: options.providerRetryAfterMs },
+      ...options?.requestId === undefined ? {} : { requestId: options.requestId },
+    })
   }
 }
 
@@ -155,6 +206,19 @@ export abstract class LlmAdapter {
    * @returns a resolved policy, or `undefined` to use the normal defaults.
    */
   providerRetryPolicy(_provider: string): ResolvedRetryPolicy | undefined {
+    return undefined
+  }
+
+  /**
+   * Resolve provider-side request-image pricing for one exact model route.
+   * The default declares none, so consumers fall back to their own neutral
+   * estimate. Implementations must answer synchronously without I/O; the
+   * token meter resolves this per measurement.
+   * @param _provider - a route passed to `registerAdapter()` for this instance.
+   * @param _model - exact model id passed to {@link GenerateOptions.model}.
+   * @returns route-owned image pricing, or `undefined` when the route declares none.
+   */
+  imageRequestPricing(_provider: string, _model: string): LlmImageRequestPricing | undefined {
     return undefined
   }
 
@@ -259,12 +323,12 @@ export interface DirectoryRegistrationHandle {
  * The abstract `llm` service: an adapter registry plus a streaming model-call
  * API, interceptable via the `llm/stream` waterfall.
  */
-export class LlmRuntime extends Service {
+export class LlmRuntime extends TypertRemoteService {
   private adapters = new Map<string, AdapterRegistration>()
   private directory = new Map<string, LlmConfigurableProvider>()
   private discoveries = new Map<
     string,
-    (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>
+    (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>
   >()
 
   constructor(ctx: Context) {
@@ -394,6 +458,7 @@ export class LlmRuntime extends Service {
    * Describe provider routes with a registered adapter.
    * @returns detached provider metadata in registration order.
    */
+  @Remote
   listProviders(): LlmProviderInfo[] {
     return [...this.adapters.values()].map(({ provider }) => ({ ...provider }))
   }
@@ -465,6 +530,7 @@ export class LlmRuntime extends Service {
    * List every declared configurable provider, registered or dormant.
    * @returns detached directory entries in declaration order.
    */
+  @Remote
   listConfigurableProviders(): LlmConfigurableProvider[] {
     return [...this.directory.values()].map(entry => ({ ...entry, settingsPath: [...entry.settingsPath] }))
   }
@@ -476,12 +542,15 @@ export class LlmRuntime extends Service {
    * directory, and because a provider being *added* has no route to name yet.
    * Disposed with the fiber.
    * @param settingsNs - the namespace whose profiles this discovery serves.
-   * @param discover - interrogates one endpoint; must honor `request.signal`.
+   * @param discover - interrogates one endpoint and must honor the supplied signal.
    * @returns the disposer that withdraws the offer.
    */
   registerModelDiscovery(
     settingsNs: string,
-    discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>,
+    discover: (
+      request: LlmModelDiscoveryRequest,
+      signal?: AbortSignal,
+    ) => Promise<readonly LlmDiscoveredModel[]>,
   ): () => void {
     const dispose = this.ctx.effect(function* (this: LlmRuntime) {
       if (settingsNs.length === 0) {
@@ -505,11 +574,13 @@ export class LlmRuntime extends Service {
    * candidate metadata a surface may offer for adoption.
    * @param settingsNs - namespace whose registered discovery serves this draft.
    * @param request - the endpoint, protocol, and one-shot credential to use.
+   * @param signal - caller cancellation.
    * @returns the advertised models, deduplicated in endpoint order.
    */
   async discoverModels(
     settingsNs: string,
     request: LlmModelDiscoveryRequest,
+    signal?: AbortSignal,
   ): Promise<LlmDiscoveredModel[]> {
     const discover = this.discoveries.get(settingsNs)
     if (discover === undefined) {
@@ -520,7 +591,9 @@ export class LlmRuntime extends Service {
     if ((request.provider ?? '').length === 0 && (request.baseURL ?? '').length === 0) {
       throw new LlmError('model discovery needs a provider route or a baseURL', 'INVALID_DISCOVERY')
     }
-    const discovered = await discover(request)
+    const discovered = signal === undefined
+      ? await discover(request)
+      : await discover(request, signal)
     const seen = new Set<string>()
     const models: LlmDiscoveredModel[] = []
     for (const model of discovered) {
@@ -537,12 +610,53 @@ export class LlmRuntime extends Service {
   }
 
   /**
+   * Remote adapter for one draft provider interrogation.
+   * @param settingsNs - namespace whose registered discovery serves this draft.
+   * @param request - endpoint, protocol, and one-shot credential to use.
+   * @param signal - caller cancellation supplied by the Remote carrier.
+   * @returns advertised models in endpoint order.
+   * @throws TypertRemoteFailure with `model-discovery-failed` when discovery refuses or fails.
+   */
+  @Remote('discoverModels')
+  async remoteDiscoverModels(
+    settingsNs: string,
+    request: LlmModelDiscoveryRequest,
+    signal: AbortSignal,
+  ): Promise<LlmDiscoveredModel[]> {
+    try {
+      return await this.discoverModels(settingsNs, request, signal)
+    } catch (error: unknown) {
+      throw new TypertRemoteFailure({
+        code: 'model-discovery-failed',
+        message: error instanceof Error ? error.message : String(error),
+        details: {
+          settingsNs,
+          ...request.baseURL === undefined ? {} : { baseURL: request.baseURL },
+        },
+      })
+    }
+  }
+
+  /**
    * Resolve the retry policy captured when one provider route was registered.
    * @param provider - registered provider route to inspect.
    * @returns the provider-owned policy, with normal defaults already resolved.
    */
   providerRetryPolicy(provider: string): ResolvedRetryPolicy {
     return this.registration(provider).retryPolicy
+  }
+
+  /**
+   * Resolve provider-side request-image pricing for one exact route, or
+   * `undefined` when the provider is unregistered or declares none. Unknown
+   * providers degrade to `undefined` rather than throwing because callers
+   * price durable history whose route may no longer be mounted.
+   * @param provider - provider route named by a request header.
+   * @param model - exact model id named by the same header.
+   * @returns the owning adapter's image pricing for the route, when declared.
+   */
+  imageRequestPricing(provider: string, model: string): LlmImageRequestPricing | undefined {
+    return this.adapters.get(provider)?.adapter.imageRequestPricing(provider, model)
   }
 
   /** Detach typed adapter-owned modality metadata. */
@@ -893,7 +1007,6 @@ export class LlmRuntime extends Service {
     }
 
     let completed = false
-    const toolCalls = new Map<number, { id?: CallId; name?: string; closed: boolean }>()
     try {
       while (true) {
         let item: { done: true } | { done: false; value: StreamChunk }
@@ -911,36 +1024,9 @@ export class LlmRuntime extends Service {
           completed = true
           return
         }
-        const chunk = item.value
-        if (chunk.type === 'block-start' && chunk.blockType === 'tool-call' && !toolCalls.has(chunk.index)) {
-          toolCalls.set(chunk.index, { closed: false })
-        } else if (chunk.type === 'tool-call-delta') {
-          const tracked = toolCalls.get(chunk.index) ?? { closed: false }
-          if (!tracked.closed) {
-            tracked.id = chunk.id
-            if (chunk.name !== undefined && chunk.name !== '') tracked.name = chunk.name
-            toolCalls.set(chunk.index, tracked)
-          }
-        } else if (chunk.type === 'block-end' && chunk.block.type === 'tool-call') {
-          const tracked = toolCalls.get(chunk.index)
-          if (tracked?.closed !== true) {
-            toolCalls.set(chunk.index, { id: chunk.block.id, name: chunk.block.name, closed: true })
-          }
-        } else if (chunk.type === 'finish'
-          && chunk.reason.kind !== 'max-tokens'
-          && chunk.reason.kind !== 'error'
-          && chunk.reason.kind !== 'aborted') {
-          try {
-            for (const toolCall of toolCalls.values()) requireToolCallIdentity(toolCall.id, toolCall.name)
-          } catch (error: unknown) {
-            completed = true
-            yield adapterFailureChunk(error, options.signal)
-            return
-          }
-        }
         // End the adapter-owned try before yielding: consumer/middleware
         // failures resumed into this generator must remain thrown.
-        yield chunk
+        yield item.value
       }
     } finally {
       if (!completed) {

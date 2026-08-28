@@ -6,8 +6,8 @@
  * @module @deepseek-ai/dsh-llm/assembler
  */
 
-import { requireToolCallIdentity } from './llm-error.ts'
-import type { CallId } from './brand.ts'
+import type { ToolCallId } from './brand.ts'
+import { HarnessError, MALFORMED_RESPONSE_CODE } from './error.ts'
 import { assertNever } from './never.ts'
 import { createMessage } from './message.ts'
 import type { Message, MessageSource } from './message.ts'
@@ -16,7 +16,7 @@ import type { ContentBlock, FinishReason, ReplayEnvelope, StreamChunk, TokenUsag
 interface PartialBlock {
   blockType: string
   text: string
-  toolCallId?: CallId
+  toolCallId?: ToolCallId
   toolCallName?: string
   toolCallArguments: string
   /** Set by `block-end` — authoritative, and freezes the partial. */
@@ -114,11 +114,7 @@ export class BlockAssembler {
       case 'reasoning': return { type: 'reasoning', text: partial.text }
       case 'tool-call': {
         const identity = requireToolCallIdentity(partial.toolCallId, partial.toolCallName)
-        return {
-          type: 'tool-call',
-          ...identity,
-          arguments: partial.toolCallArguments,
-        }
+        return { type: 'tool-call', ...identity, arguments: partial.toolCallArguments }
       }
       default: throw new Error(`cannot assemble incomplete block of type "${partial.blockType}"`)
     }
@@ -210,4 +206,18 @@ export class BlockAssembler {
   message(source: MessageSource = { kind: 'plugin', plugin: 'dsh-llm/assembler' }): Message {
     return createMessage({ role: 'assistant', content: this.blocks(), source })
   }
+}
+
+/** Reject a provider tool-call identity that cannot be executed or correlated. */
+function requireToolCallIdentity(
+  id: ToolCallId | undefined,
+  name: string | undefined,
+): { id: ToolCallId; name: string } {
+  if (id === undefined || id.trim() === '') {
+    throw new HarnessError('model response contained a tool call without a non-empty id', MALFORMED_RESPONSE_CODE)
+  }
+  if (name === undefined || name.trim() === '') {
+    throw new HarnessError('model response contained a tool call without a non-empty name', MALFORMED_RESPONSE_CODE)
+  }
+  return { id, name }
 }

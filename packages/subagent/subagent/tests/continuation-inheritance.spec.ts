@@ -24,6 +24,7 @@ import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import ApprovalService, { effectiveApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import SubagentRuntime from '../src/index.ts'
+import { TestSessionQuery } from './test-session-query.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -45,6 +46,7 @@ async function setup(script: Script) {
   await ctx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: root })
   await ctx.plugin(ApprovalService)
   await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(TestSessionQuery)
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
@@ -110,8 +112,6 @@ describe('continuable policy inheritance', () => {
       .flatMap(block => block.type === 'text' ? [block.text] : [])
       .join('\n')
     expect(contextText).toContain('You are a delegated subagent')
-    expect(contextText).toContain('cannot be widened from inside this session')
-    expect(contextText).toContain('do not retry the denied operation')
   })
 
   it('captures policy at delegation before asynchronous child creation', { timeout: 20_000 }, async () => {

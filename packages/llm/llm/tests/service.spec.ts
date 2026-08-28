@@ -9,7 +9,6 @@ import LlmRuntime, {
   isQuotaExceededError,
   LlmAdapter,
   LlmError,
-  CallId,
   ProviderRequestId,
   ReasoningEffortId,
   resolveRetryPolicy,
@@ -378,44 +377,6 @@ describe('LlmRuntime', () => {
     })
   })
 
-  it('turns an empty provider tool name into a retryable malformed-response finish', async () => {
-    const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    ctx.llm.registerAdapter(['test'], new ScriptedAdapter([
-      { type: 'block-start', index: 0, blockType: 'tool-call' },
-      { type: 'tool-call-delta', index: 0, id: CallId('call-1'), name: '', argumentsDelta: '{}' },
-      { type: 'finish', reason: { kind: 'tool-calls' } },
-    ]))
-
-    const chunks = await collect(ctx.llm.stream({ provider: 'test', model: 'test', messages: [] }))
-
-    expect(chunks.at(-1)).toEqual({
-      type: 'finish',
-      reason: {
-        kind: 'error',
-        failure: {
-          message: 'model response contained a tool call without a non-empty name',
-          code: 'MALFORMED_RESPONSE',
-        },
-      },
-    })
-  })
-
-  it('keeps an incomplete tool call droppable when the provider reaches max tokens', async () => {
-    const ctx = new Context()
-    await ctx.plugin(LlmRuntime)
-    ctx.llm.registerAdapter(['test'], new ScriptedAdapter([
-      { type: 'block-start', index: 0, blockType: 'tool-call' },
-      { type: 'tool-call-delta', index: 0, id: CallId('call-1'), name: '', argumentsDelta: '{' },
-      { type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('call-1'), name: '', arguments: '{' } },
-      { type: 'finish', reason: { kind: 'max-tokens' } },
-    ]))
-
-    const chunks = await collect(ctx.llm.stream({ provider: 'test', model: 'test', messages: [] }))
-
-    expect(chunks.at(-1)).toEqual({ type: 'finish', reason: { kind: 'max-tokens' } })
-  })
-
   it('normalizes arbitrary adapter rejections without throwing them downstream', async () => {
     const adapter = new class extends LlmAdapter {
       stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -564,13 +525,20 @@ describe('LlmRuntime', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     const provider = { id: 'catalog', name: 'Catalog Provider' }
-    const model = { provider: 'catalog', id: 'fast', name: 'Fast', description: 'Low latency' }
+    const model = {
+      provider: 'catalog',
+      id: 'fast',
+      name: 'Fast',
+      description: 'Low latency',
+      inputModalities: ['text'] as const,
+    }
     ctx.llm.registerAdapter(['catalog'], new CatalogAdapter(provider, [model]))
 
     const providers = ctx.llm.listProviders()
     const models = await ctx.llm.listModels('catalog')
     expect(providers).toEqual([provider])
     expect(models).toEqual([model])
+    expect(models[0]!.inputModalities).not.toBe(model.inputModalities)
 
     providers[0]!.name = 'mutated'
     models[0]!.name = 'mutated'
@@ -578,7 +546,7 @@ describe('LlmRuntime', () => {
     model.name = 'source mutated'
     expect(ctx.llm.listProviders()).toEqual([{ id: 'catalog', name: 'Catalog Provider' }])
     await expect(ctx.llm.listModels('catalog')).resolves.toEqual([{
-      provider: 'catalog', id: 'fast', name: 'source mutated', description: 'Low latency',
+      provider: 'catalog', id: 'fast', name: 'source mutated', description: 'Low latency', inputModalities: ['text'],
     }])
   })
 

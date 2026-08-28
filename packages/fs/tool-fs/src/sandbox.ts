@@ -13,17 +13,17 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { WIDER_MODES, approveEscalation, escalationHintMarker, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
+import { ESCALATION_TARGETS, approveEscalation, escalationHintMarker, sandboxDenialMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { FsError } from '@deepseek-ai/dsh-fs'
 
-/** The two escalation arguments a mutating tool may carry when escalation is available. */
+/** The two escalation arguments a mutating tool may carry (advertised only under a confining backend). */
 export interface FsEscalationArgs {
   sandbox_permissions?: string
   justification?: string
 }
 
-/** The schema fields spread into a mutating tool's parameters when escalation is available. */
+/** The schema fields for the escalation arguments, spread into a tool's `parameters` when a confining backend is mounted. */
 export interface EscalationSchemaFields {
   sandbox_permissions: { type: 'string'; enum: string[]; description: string }
   justification: { type: 'string'; description: string }
@@ -42,16 +42,11 @@ export class FsSandboxController {
 
   constructor(private readonly ctx: Context) {
     const defaultMode = ctx.fs.sandboxMode
+    this.escalationModes = defaultMode === undefined ? [] : ESCALATION_TARGETS
     this.policy = defaultMode === undefined ? undefined : ctx.get('sandboxPolicy')
     if (defaultMode !== undefined && this.policy === undefined) {
       throw new Error('tool-fs: the mounted filesystem confines but ctx.sandboxPolicy is missing')
     }
-    const approval = ctx.get('approval')
-    this.escalationModes = this.policy !== undefined
-      && approval !== undefined
-      && approval.config.policy !== 'never'
-      ? WIDER_MODES[this.policy.defaultMode] ?? []
-      : []
   }
 
   /**
@@ -90,16 +85,13 @@ export class FsSandboxController {
    *   unsandboxed backend.
    */
   async resolvePolicy(toolName: string, args: FsEscalationArgs, exec: ToolExecution): Promise<SandboxExecutionPolicy | undefined> {
-    const standingPolicy = this.policy?.resolve({ ...exec.agent ? { session: exec.agent.session } : {} })
-    // Full access cannot escalate. Treat stale escalation metadata as inert so
-    // a valid mutation is not rejected for asking for an impossible no-op.
-    if (standingPolicy?.mode === 'danger-full-access') return standingPolicy
     validateEscalationArgs(args.sandbox_permissions, args.justification)
+    const standingPolicy = this.policy?.resolve({ ...exec.agent ? { session: exec.agent.session } : {} })
     if (args.sandbox_permissions === undefined || args.justification === undefined) {
       return standingPolicy
     }
     if (this.escalationModes.length === 0) {
-      throw new Error('sandbox_permissions is not available under the current sandbox and approval policy')
+      throw new Error('sandbox_permissions is not available in this composition (no sandboxing filesystem to escalate)')
     }
     const policy = standingPolicy as SandboxExecutionPolicy
     const approvedMode = await approveEscalation(
@@ -134,7 +126,6 @@ export class FsSandboxController {
     // A FS_SANDBOX_DENIED only arises under a confining backend, whose tool
     // path always resolves a policy before mutation.
     const mode = (policy as SandboxExecutionPolicy).mode
-    const hint = this.escalationModes.length > 0 ? `\n${escalationHintMarker('operation')}` : ''
-    return new FsError(`${sandboxDenialMarker(mode)}${hint}`, 'FS_SANDBOX_DENIED', { cause: error })
+    return new FsError(`${sandboxDenialMarker(mode)}\n${escalationHintMarker('operation')}`, 'FS_SANDBOX_DENIED', { cause: error })
   }
 }

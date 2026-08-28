@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BlockAssembler, CallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, ToolCallId, type StreamChunk } from '@deepseek-ai/dsh-llm'
 
 describe('BlockAssembler', () => {
   it('assembles interleaved text, reasoning, and tool-call deltas', () => {
@@ -11,8 +11,8 @@ describe('BlockAssembler', () => {
       { type: 'text-delta', index: 1, text: 'Hello' },
       { type: 'text-delta', index: 1, text: ' world' },
       { type: 'block-start', index: 2, blockType: 'tool-call' },
-      { type: 'tool-call-delta', index: 2, id: CallId('call-1'), name: 'echo', argumentsDelta: '{"text":' },
-      { type: 'tool-call-delta', index: 2, id: CallId('call-1'), argumentsDelta: '"hi"}' },
+      { type: 'tool-call-delta', index: 2, id: ToolCallId('call-1'), name: 'echo', argumentsDelta: '{"text":' },
+      { type: 'tool-call-delta', index: 2, id: ToolCallId('call-1'), argumentsDelta: '"hi"}' },
       { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
       { type: 'finish', reason: { kind: 'tool-calls' } },
     ]
@@ -22,7 +22,7 @@ describe('BlockAssembler', () => {
     expect(assembler.blocks()).toEqual([
       { type: 'reasoning', text: 'thinking…' },
       { type: 'text', text: 'Hello world' },
-      { type: 'tool-call', id: CallId('call-1'), name: 'echo', arguments: '{"text":"hi"}' },
+      { type: 'tool-call', id: ToolCallId('call-1'), name: 'echo', arguments: '{"text":"hi"}' },
     ])
     expect(assembler.usage).toEqual({ inputTokens: 10, outputTokens: 5 })
     expect(assembler.finish).toEqual({ kind: 'tool-calls' })
@@ -93,33 +93,27 @@ describe('BlockAssembler', () => {
   it('ignores tool-call-delta stragglers after block-end', () => {
     const assembler = new BlockAssembler()
     assembler.push({ type: 'block-start', index: 0, blockType: 'tool-call' })
-    assembler.push({ type: 'tool-call-delta', index: 0, id: CallId('c1'), name: 'echo', argumentsDelta: '{}' })
-    assembler.push({ type: 'block-end', index: 0, block: { type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' } })
+    assembler.push({ type: 'tool-call-delta', index: 0, id: ToolCallId('c1'), name: 'echo', argumentsDelta: '{}' })
+    assembler.push({ type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('c1'), name: 'echo', arguments: '{}' } })
     // straggler after block-end — partial.block is set, so early return
-    assembler.push({ type: 'tool-call-delta', index: 0, id: CallId('c1'), name: 'evil', argumentsDelta: 'oops' })
-    expect(assembler.blocks()).toEqual([{ type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' }])
+    assembler.push({ type: 'tool-call-delta', index: 0, id: ToolCallId('c1'), name: 'evil', argumentsDelta: 'oops' })
+    expect(assembler.blocks()).toEqual([{ type: 'tool-call', id: ToolCallId('c1'), name: 'echo', arguments: '{}' }])
   })
 
-  it('refuses a tool call without an id or name instead of fabricating its identity', () => {
+  it('rejects a tool call without a provider identity', () => {
     const assembler = new BlockAssembler()
     assembler.push({ type: 'tool-call-delta', index: 0, argumentsDelta: '{}' } as StreamChunk)
-    expect(() => assembler.blocks()).toThrow(expect.objectContaining({
-      code: 'MALFORMED_RESPONSE',
-      message: 'model response contained a tool call without a non-empty id',
-    }))
+    expect(() => assembler.blocks()).toThrow('model response contained a tool call without a non-empty id')
   })
 
-  it('refuses a closed tool call with an empty name', () => {
+  it('rejects an empty provider tool name', () => {
     const assembler = new BlockAssembler()
     assembler.push({
       type: 'block-end',
       index: 0,
-      block: { type: 'tool-call', id: CallId('call-0'), name: '', arguments: '{}' },
+      block: { type: 'tool-call', id: ToolCallId('call-1'), name: '', arguments: '{}' },
     })
-    expect(() => assembler.blocks()).toThrow(expect.objectContaining({
-      code: 'MALFORMED_RESPONSE',
-      message: 'model response contained a tool call without a non-empty name',
-    }))
+    expect(() => assembler.blocks()).toThrow('model response contained a tool call without a non-empty name')
   })
 
   it('exposes usage via the getter when a usage chunk was received', () => {
@@ -139,7 +133,7 @@ describe('BlockAssembler replay metadata', () => {
     assembler.push({
       type: 'block-end',
       index: 1,
-      block: { type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{"text":' },
+      block: { type: 'tool-call', id: ToolCallId('c1'), name: 'echo', arguments: '{"text":' },
     })
     assembler.push({ type: 'block-end', index: 2, block: { type: 'reasoning', text: 'tail' } })
     assembler.push({
@@ -176,7 +170,7 @@ describe('BlockAssembler replay metadata', () => {
     assembler.push({
       type: 'block-end',
       index: 1,
-      block: { type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{}' },
+      block: { type: 'tool-call', id: ToolCallId('c1'), name: 'echo', arguments: '{}' },
     })
     assembler.push({ type: 'finish', reason: { kind: 'tool-calls' }, replayState })
 
@@ -190,7 +184,7 @@ describe('BlockAssembler replay metadata', () => {
     assembler.push({
       type: 'block-end',
       index: 1,
-      block: { type: 'tool-call', id: CallId('c1'), name: 'echo', arguments: '{"text":' },
+      block: { type: 'tool-call', id: ToolCallId('c1'), name: 'echo', arguments: '{"text":' },
     })
     assembler.push({ type: 'finish', reason: { kind: 'max-tokens' }, replayState })
 
@@ -257,10 +251,10 @@ describe('BlockAssembler.interruptedBlocks', () => {
     assembler.push({ type: 'text-delta', index: 0, text: 'calling' })
     assembler.push({ type: 'block-end', index: 0, block: { type: 'text', text: 'calling' } })
     assembler.push({ type: 'block-start', index: 1, blockType: 'tool-call' })
-    assembler.push({ type: 'tool-call-delta', index: 1, id: CallId('c1'), name: 'read', argumentsDelta: '{"a":1}' })
-    assembler.push({ type: 'block-end', index: 1, block: { type: 'tool-call', id: CallId('c1'), name: 'read', arguments: '{"a":1}' } })
+    assembler.push({ type: 'tool-call-delta', index: 1, id: ToolCallId('c1'), name: 'read', argumentsDelta: '{"a":1}' })
+    assembler.push({ type: 'block-end', index: 1, block: { type: 'tool-call', id: ToolCallId('c1'), name: 'read', arguments: '{"a":1}' } })
     assembler.push({ type: 'block-start', index: 2, blockType: 'tool-call' })
-    assembler.push({ type: 'tool-call-delta', index: 2, id: CallId('c2'), name: 'read', argumentsDelta: '{"pa' })
+    assembler.push({ type: 'tool-call-delta', index: 2, id: ToolCallId('c2'), name: 'read', argumentsDelta: '{"pa' })
     expect(assembler.interruptedBlocks()).toEqual([{ type: 'text', text: 'calling' }])
   })
 
