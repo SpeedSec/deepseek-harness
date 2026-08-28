@@ -114,13 +114,14 @@ function createProfileLifecycleFixture(): ProfileLifecycleFixture {
   writeFileSync(join(bundleDir, 'cordis.patch.yml'), [
     '- insert:',
     '    - id: profile-lifecycle-fixture',
-    `      name: ${pathToFileURL(join(bundleDir, 'plugin.mjs')).href}`,
+    '      name: dsh-lifecycle-bundle',
     '',
   ].join('\n'))
   writeFileSync(join(bundleDir, 'package.json'), JSON.stringify({
     name: 'dsh-lifecycle-bundle',
     version: '0.0.0',
     type: 'module',
+    exports: './plugin.mjs',
     dsh: { bundle: { patch: './cordis.patch.yml' } },
   }, undefined, 2))
   const profileDir = join(home, 'profiles', 'lifecycle')
