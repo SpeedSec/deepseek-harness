@@ -15,7 +15,7 @@ import {
 import { sql } from './sql.ts'
 
 /** Current physical-record schema with packed and compressed event rows. */
-export const SCHEMA_VERSION = 19
+export const SCHEMA_VERSION = 20
 /** Application id reserved for DeepSeek Harness SQLite session databases. */
 export const SESSION_PERSISTENCE_SQLITE_APPLICATION_ID = 0x44534850
 
@@ -42,6 +42,7 @@ export interface EventRow {
   readonly data: string | Uint8Array
   readonly source_event_seqs: Uint8Array | null
   readonly surface_op: string | null
+  readonly ignorable: 0 | 1 | null
   readonly is_packed: 0 | 1
 }
 
@@ -207,7 +208,7 @@ function initializeDatabase(db: DatabaseSync): void {
   db.exec(sql('schema'))
   db.prepare(sql('insert-persistence-state')).run(randomUUID())
   db.exec(sql('set-application-id'))
-  db.exec(sql('set-user-version-19'))
+  db.exec(sql('set-user-version-20'))
 }
 
 let canonicalSchema: readonly SchemaObjectRow[] | undefined
@@ -318,6 +319,10 @@ export function decodeEventRow(value: unknown): EventRow {
   if (isPacked !== 0 && isPacked !== 1) {
     throw new Error('stored event is_packed must be 0 or 1')
   }
+  const ignorable = nullableSafeIntegerField(row, 'ignorable')
+  if (ignorable !== null && ignorable !== 1) {
+    throw new Error('stored event ignorable must be 1 or null')
+  }
   return {
     seq: nonnegativeSafeIntegerField(row, 'seq'),
     type: nonemptyStringField(row, 'type'),
@@ -325,6 +330,7 @@ export function decodeEventRow(value: unknown): EventRow {
     data: stringOrBlobField(row, 'data'),
     source_event_seqs: nullableBlobField(row, 'source_event_seqs'),
     surface_op: nullableStringField(row, 'surface_op'),
+    ignorable: ignorable as 0 | 1 | null,
     is_packed: isPacked,
   }
 }

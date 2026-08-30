@@ -25,6 +25,7 @@ export interface BoundRecord {
   readonly data: string | Uint8Array
   readonly sourceEventSeqs: Uint8Array | null
   readonly surfaceOp: string | null
+  readonly ignorable: 0 | 1 | null
   readonly isPacked: 0 | 1
 }
 
@@ -35,7 +36,7 @@ const RUN_TAG = 1
 const MAX_SAFE_INTEGER = BigInt(Number.MAX_SAFE_INTEGER)
 const MAX_ZIGZAG_INTEGER = MAX_SAFE_INTEGER * 2n
 /**
- * Schema-19 raw-content zstd dictionary for independently decodable data rows.
+ * Schema-20 raw-content zstd dictionary for independently decodable data rows.
  * Its exact bytes are part of the physical format; changing the resource
  * requires a schema-version bump.
  */
@@ -88,6 +89,7 @@ export function bindRecord(record: StorageRecord): BoundRecord {
       data: encodeData(JSON.stringify(record.data)),
       sourceEventSeqs: null,
       surfaceOp: null,
+      ignorable: null,
       isPacked: 1,
     }
   }
@@ -102,6 +104,7 @@ export function bindRecord(record: StorageRecord): BoundRecord {
       ? null
       : encodeSourceEventSeqs(surface.sourceEventSeqs),
     surfaceOp: surface.surfaceOp === undefined ? null : JSON.stringify(surface.surfaceOp),
+    ignorable: event.ignorable === true ? 1 : null,
     isPacked: 0,
   }
 }
@@ -276,6 +279,7 @@ function decodeScalarRow(row: EventRow): SessionEvent {
     seq: row.seq,
     time: row.time,
     data: JSON.parse(decodeData(row.data)) as SessionEvent['data'],
+    ...row.ignorable === 1 ? { ignorable: true as const } : {},
     ...surfaceFields,
   } as SessionEvent
 }

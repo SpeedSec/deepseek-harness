@@ -135,6 +135,7 @@ async function measureWriteTraffic(
     readonly data: string | Uint8Array
     readonly source_event_seqs: Uint8Array | null
     readonly surface_op: string | null
+    readonly ignorable: number | null
     readonly is_packed: number
   }
   const sameValue = (left: string | Uint8Array | null, right: string | Uint8Array | null): boolean => (
@@ -150,6 +151,7 @@ async function measureWriteTraffic(
       && sameValue(left.data, right.data)
       && sameValue(left.source_event_seqs, right.source_event_seqs)
       && left.surface_op === right.surface_op
+      && left.ignorable === right.ignorable
       && left.is_packed === right.is_packed
   )
   const ctx = new Context()
@@ -380,7 +382,7 @@ describe('SessionPersistenceSqlite physical packing', () => {
       .rejects.toThrow(/schema version 17.*incompatible/)
   })
 
-  it('keeps the page size of an established schema 19 database', async () => {
+  it('keeps the page size of an established schema 20 database', async () => {
     const path = await freshDbPath('dsh-sqlite-page-size-')
     const seed = await openDatabase(DatabaseSync, path, 'delete', DEFAULT_BUSY_TIMEOUT_MS)
     seed.close()
@@ -569,7 +571,7 @@ describe('SessionPersistenceSqlite schema ownership', () => {
 
     const foreignPath = await freshDbPath('dsh-sqlite-foreign-')
     const foreign = new DatabaseSync(foreignPath)
-    foreign.exec(testSql('set-user-version-19'))
+    foreign.exec(testSql('set-user-version-20'))
     foreign.exec(testSql('set-application-id-12345'))
     foreign.close()
     await expect(openDatabase(DatabaseSync, foreignPath, 'wal', DEFAULT_BUSY_TIMEOUT_MS)).rejects.toThrow(/has application id 12345/)
@@ -668,7 +670,7 @@ describe('SessionPersistenceSqlite schema ownership', () => {
 
     const eventRow = {
       seq: 0, type: 'turn/start', time: 1, data: '{}',
-      source_event_seqs: null, surface_op: null, is_packed: 0,
+      source_event_seqs: null, surface_op: null, ignorable: null, is_packed: 0,
     }
     for (const [value, message] of [
       [null, /object/],

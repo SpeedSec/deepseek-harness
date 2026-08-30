@@ -1066,6 +1066,7 @@ describe('Session', () => {
     }
     const cases: unknown[] = [
       { ...base, extra: true },
+      { ...base, ignorable: false },
       { ...base, type: 1 },
       { ...base, seq: '0' },
       { ...base, seq: 0.5 },

@@ -26,6 +26,7 @@ CREATE TABLE events (
   data              ANY NOT NULL,
   source_event_seqs ANY,
   surface_op        TEXT,
+  ignorable         INTEGER CHECK (ignorable IS NULL OR ignorable = 1),
   is_packed         INTEGER NOT NULL CHECK (is_packed IN (0, 1)),
   PRIMARY KEY (session_id, seq)
 ) STRICT;

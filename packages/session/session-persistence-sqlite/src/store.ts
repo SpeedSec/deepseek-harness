@@ -383,6 +383,7 @@ export class SqliteStore implements PersistenceBackend<number> {
       record.data,
       record.sourceEventSeqs,
       record.surfaceOp,
+      record.ignorable,
       record.isPacked,
     )
   }

@@ -1130,16 +1130,17 @@ export class PersistenceCoordinator<TornMarker = unknown> {
   }
 
   /**
-   * Refuse a log containing an event type this build does not know: silently
-   * skipping an unknown event could reconstruct a wrong session. Runs on
+   * Refuse a log containing an event type this build does not know unless the
+   * writer marked it ignorable: silently skipping a required event could
+   * reconstruct a wrong session. Runs on
    * NORMALIZED events — after `snapshotStoredEvents`/`adoptStoredEvents` has
    * upgraded the legacy shapes this build still reads and rejected the ones it
    * does not, so those keep their specific diagnostics.
    */
   private assertEventsSupported(meta: SessionHeader, events: readonly SessionEvent[]): void {
     for (const event of events) {
-      if (KNOWN_SESSION_EVENT_TYPES.has(event.type)) continue
-      throw this.unsupported(meta, `session "${meta.id}" contains event type "${event.type}" (seq ${event.seq}) unknown to this harness; refusing to interpret the log — it was likely written by a newer harness`)
+      if (KNOWN_SESSION_EVENT_TYPES.has(event.type) || event.ignorable === true) continue
+      throw this.unsupported(meta, `session "${meta.id}" contains event type "${event.type}" (seq ${event.seq}) unknown to this harness and not marked ignorable; refusing to interpret the log — it was likely written by a newer harness`)
     }
   }
 

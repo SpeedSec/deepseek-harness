@@ -267,6 +267,31 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    it('reloads an ignorable plugin lifecycle event after the writer is gone', async () => {
+      const fix = await makeFixture()
+      const first = await freshCtx(fix)
+      try {
+        const session = first.ctx.sessions.create(SessionId('plugin-lifecycle-cold'), { meta: { cwd: WORK } })
+        const event = session.appendPluginEvent('example/plugin-lifecycle', {
+          phase: 'settled',
+          batchId: 'batch-cold',
+          childSessionId: 'child-cold',
+        })
+        await first.ctx.sessions.flush(session)
+        await first.fiber.dispose()
+
+        const second = await freshCtx(fix)
+        try {
+          const loaded = await second.ctx.sessionPersistence.load(session.id)
+          expect(loaded.events).toContainEqual(event)
+        } finally {
+          await second.fiber.dispose()
+        }
+      } finally {
+        await fix.cleanup()
+      }
+    })
+
     it('rejects crash-repair load while a live session owns the persisted prefix', async () => {
       const fix = await makeFixture()
       const { ctx, fiber } = await freshCtx(fix)

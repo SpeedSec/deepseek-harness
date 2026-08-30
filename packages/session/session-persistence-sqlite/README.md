@@ -33,7 +33,7 @@ Choose this backend when a local deployment benefits from one queryable database
 
 ### Disk footprint and performance
 
-The packed layout exchanges some SQLite-local latency for a smaller queryable database. On the 501-session comparison corpus, the schema-19 layout used 233.18 MB against the SQLite comparison baseline's 438.31 MB and compressed JSONL's 148.15 MB. Full writes were about 2.3× faster than JSONL and suffix reads remained much faster; complete reads and forks were slightly slower than JSONL. The [persistence latency and page-size decision](../../../.agents/notes/implemented/architecture/2026-08-25-persistence-latency-and-page-size.md) owns the method, complete metrics, and accepted trade-offs.
+The packed layout exchanges some SQLite-local latency for a smaller queryable database. On the 501-session comparison corpus, the schema-20 layout used 233.18 MB against the SQLite comparison baseline's 438.31 MB and compressed JSONL's 148.15 MB. Full writes were about 2.3× faster than JSONL and suffix reads remained much faster; complete reads and forks were slightly slower than JSONL. The [persistence latency and page-size decision](../../../.agents/notes/implemented/architecture/2026-08-25-persistence-latency-and-page-size.md) owns the method, complete metrics, and accepted trade-offs.
 
 The disk cost buys a structured, queryable view of session history: external tooling can analyze `sessions` and `events` with SQL, decoding physical rows the way this provider does — the groundwork for features such as built-in full-text search.
 
@@ -145,7 +145,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [Session package map](../README.md) — adjacent persistence, projection, title, and telemetry packages.
 - [Generated configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-persistence-sqlite) — every accepted config field and its source declaration.
 - [SQLite physical chunk-row decision](../../../.agents/notes/implemented/architecture/2026-08-18-sqlite-physical-chunk-row-compression.md) — rationale, alternatives, and measurements behind the packed layout.
-- [Persistence latency and page-size decision](../../../.agents/notes/implemented/architecture/2026-08-25-persistence-latency-and-page-size.md) — the 501-session benchmark and schema-19 storage trade-offs.
+- [Persistence latency and page-size decision](../../../.agents/notes/implemented/architecture/2026-08-25-persistence-latency-and-page-size.md) — the 501-session benchmark and schema-20 storage trade-offs.
 
 -----
 
@@ -173,7 +173,7 @@ Physical packing does not mutate request prefixes. Provider cache reuse depends 
 
 These limits define when the provider is a poor fit or needs special operational care. They are current package constraints, not a general SQLite comparison or a task backlog.
 
-- **Pre-release design with no migration** — schema 19 is an interim SQLite-only design; neither schema stability nor migration support is guaranteed.
+- **Pre-release design with no migration** — schema 20 is an interim SQLite-only design; neither schema stability nor migration support is guaranteed.
 - **Packing depends on batch boundaries** — a compatible run split by the write-behind window or an explicit flush stays split across physical rows; this avoids rewriting prior rows at the cost of a timing-dependent packing ratio.
 - **Synchronous SQLite and compression** — Node's SQLite driver and Zstandard calls block the JavaScript thread.
 - **Busy waits block the event loop** — SQLite waits inside synchronous calls; a competing writer can stall the thread for up to the configured `busyTimeoutMs`.
@@ -186,6 +186,6 @@ These limits define when the provider is a poor fit or needs special operational
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The 501-session corpus contains private session data and is not committed. Its aggregate method, complete results, and rejected candidates are recorded in the [persistence latency and page-size decision](../../../.agents/notes/implemented/architecture/2026-08-25-persistence-latency-and-page-size.md); the packaged dictionary's hash-pinned resource is the schema-19 source of truth.
+The 501-session corpus contains private session data and is not committed. Its aggregate method, complete results, and rejected candidates are recorded in the [persistence latency and page-size decision](../../../.agents/notes/implemented/architecture/2026-08-25-persistence-latency-and-page-size.md); the packaged dictionary's hash-pinned resource is the schema-20 source of truth.
 
 </details>

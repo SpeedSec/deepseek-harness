@@ -44,12 +44,13 @@ function row(record: StorageRecord): EventRow {
     data: bound.data,
     source_event_seqs: bound.sourceEventSeqs,
     surface_op: bound.surfaceOp,
+    ignorable: bound.ignorable,
     is_packed: bound.isPacked,
   }
 }
 
 describe('SQLite compression', () => {
-  it('pins the schema-19 dictionary bytes', () => {
+  it('pins the schema-20 dictionary bytes', () => {
     const dictionary = readFileSync(new URL('../resources/zstd-dictionary.bin', import.meta.url))
     expect(createHash('sha256').update(dictionary).digest('hex'))
       .toBe('dad18fa0247a8fdd886a62d8552eabd36cbd50c25af172873080d2f0ae770d17')
@@ -167,7 +168,7 @@ describe('SQLite compression', () => {
     expect(() => decodeStorageRecord(record)).toThrow(/malformed .* storage row/)
   })
 
-  it('decodes the schema-19 row vocabulary without another package codec', () => {
+  it('decodes the schema-20 row vocabulary without another package codec', () => {
     const fixture: EventRow = {
       seq: 7,
       type: 'text-chunks',
@@ -175,6 +176,7 @@ describe('SQLite compression', () => {
       data: JSON.stringify({ turn: 2, step: 3, index: 1, dt: [2, -1], texts: ['a', 'b', 'c'] }),
       source_event_seqs: null,
       surface_op: null,
+      ignorable: null,
       is_packed: 1,
     }
     expect(decodeRow(fixture)).toEqual([
@@ -230,6 +232,19 @@ describe('SQLite compression', () => {
     const bound = bindRecord(event)
     expect(bound.data).toBeInstanceOf(Uint8Array)
     expect(decodeRow(row(event))).toEqual([event])
+  })
+
+  it('preserves the ignorable marker on an unknown scalar event', () => {
+    const event = {
+      type: 'example/plugin-lifecycle',
+      seq: 0,
+      time: 1,
+      data: { phase: 'settled' },
+      ignorable: true,
+    } as unknown as SessionEvent
+    const physical = row(event)
+    expect(physical.ignorable).toBe(1)
+    expect(decodeRow(physical)).toEqual([event])
   })
 
   it('compresses large data and run-encodes consecutive provenance arrays', () => {
@@ -339,6 +354,7 @@ describe('SQLite compression', () => {
       data: ' '.repeat(MAX_PACKED_DATA_BYTES + 1),
       source_event_seqs: null,
       surface_op: null,
+      ignorable: null,
       is_packed: 1,
     }
     expect(() => decodeRow(oversized)).toThrow(/data exceeds/)
@@ -359,6 +375,7 @@ describe('SQLite compression', () => {
       data: zstdCompressSync(serialized),
       source_event_seqs: null,
       surface_op: null,
+      ignorable: null,
       is_packed: 1,
     }
     expect(() => decodeRow(oversized)).toThrow(/Buffer larger than/)
@@ -401,6 +418,7 @@ describe('SQLite compression', () => {
       data: JSON.stringify({ turn: 1, step: 1, index: 0, dt: [], texts: ['a', 'b'] }),
       source_event_seqs: null,
       surface_op: null,
+      ignorable: null,
       is_packed: 1,
     }
     expect(scanRows([malformed])).toEqual({ preserved: [], tornFrom: 0 })

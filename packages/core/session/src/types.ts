@@ -401,6 +401,11 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
     /** Unix epoch milliseconds. */
     time: number
     data: SessionEventMap[K]
+    /**
+     * Marks an event as safe for readers that do not recognize its type to
+     * retain without interpreting. Absent means the event is required.
+     */
+    ignorable?: true
   } & (K extends SurfaceEventType ? {
     /**
      * Seq numbers of earlier events that this event cites as sources
