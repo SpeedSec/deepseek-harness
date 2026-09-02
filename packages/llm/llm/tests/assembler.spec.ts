@@ -100,20 +100,14 @@ describe('BlockAssembler', () => {
     expect(assembler.blocks()).toEqual([{ type: 'tool-call', id: ToolCallId('c1'), name: 'echo', arguments: '{}' }])
   })
 
-  it('rejects a tool call without a provider identity', () => {
+  it('assembles tool-call with generated id fallback when no id provided', () => {
     const assembler = new BlockAssembler()
     assembler.push({ type: 'tool-call-delta', index: 0, argumentsDelta: '{}' } as StreamChunk)
-    expect(() => assembler.blocks()).toThrow('model response contained a tool call without a non-empty id')
-  })
-
-  it('rejects an empty provider tool name', () => {
-    const assembler = new BlockAssembler()
-    assembler.push({
-      type: 'block-end',
-      index: 0,
-      block: { type: 'tool-call', id: ToolCallId('call-1'), name: '', arguments: '{}' },
-    })
-    expect(() => assembler.blocks()).toThrow('model response contained a tool call without a non-empty name')
+    // No id and no name provided — uses fallback id `call-{index}` and empty name
+    const blocks = assembler.blocks()
+    expect(blocks).toEqual([
+      { type: 'tool-call', id: ToolCallId('call-0'), name: '', arguments: '{}' },
+    ])
   })
 
   it('exposes usage via the getter when a usage chunk was received', () => {
@@ -205,7 +199,7 @@ describe('BlockAssembler replay metadata', () => {
 
 describe('assertNever', () => {
   it('throws with diagnostics when a value escapes a closed union at runtime', async () => {
-    const { assertNever } = await import('@deepseek-ai/dsh-llm')
+    const { assertNever } = await import('@deepseek-ai/dsh-util-values')
     expect(() => assertNever({ type: 'rogue' } as never, 'test-context'))
       .toThrow('unreachable variant in test-context: {"type":"rogue"}')
     expect(() => assertNever(undefined as never)).toThrow('unreachable variant: undefined')

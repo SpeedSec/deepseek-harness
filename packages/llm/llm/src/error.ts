@@ -38,9 +38,6 @@ export const QUOTA_EXCEEDED_CODE = 'QUOTA'
  */
 export const EMPTY_RESPONSE_CODE = 'EMPTY_RESPONSE'
 
-/** Canonical provider-neutral code for a model response with an unusable tool-call identity. */
-export const MALFORMED_RESPONSE_CODE = 'MALFORMED_RESPONSE'
-
 /**
  * Canonical provider-neutral code for a credential that was supplied but
  * cannot be used — malformed rather than absent. Distinct from
