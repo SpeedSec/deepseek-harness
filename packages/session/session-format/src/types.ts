@@ -225,8 +225,8 @@ export interface SessionFormatExtensionCoordinates {
 /** Deployment-owned historical policy shared by preparation and verification. */
 export interface SessionFormatExtensionPolicy {
   readonly fingerprint: string
-  /** Validate and claim an explicitly owned event; return false for every other type. */
-  admit(event: SessionFormatEvent, version: number, sessionId: string): boolean
+  /** Claim an owned event; log-only explicitly converts a historical required extension to ignorable. */
+  admit(event: SessionFormatEvent, version: number, sessionId: string): boolean | 'log-only'
   /** Observe each surviving source event, including events without extension metadata. */
   mapped(coordinates: SessionFormatExtensionCoordinates): void
   /** Rewrite owned payload references after ordinary core references are mapped. */

@@ -11,9 +11,11 @@ import type { SessionFormatEvent, SessionFormatMigrationStageInput } from './typ
  */
 export function admitSessionFormatExtension(event: SessionFormatEvent, input: SessionFormatMigrationStageInput): boolean {
   if (input.extensions === undefined) return false
-  if (!input.extensions.admit(event, input.sourceHeader.version, input.sourceHeader.id)) return false
+  const admission = input.extensions.admit(event, input.sourceHeader.version, input.sourceHeader.id)
+  if (!admission) return false
   if (Object.keys(event).some(key => !['type', 'seq', 'time', 'data', 'ignorable'].includes(key))
-    || event.ignorable !== true || typeof event.type !== 'string') {
+    || event.ignorable !== true && !(admission === 'log-only' && event.ignorable === undefined)
+    || typeof event.type !== 'string') {
     throw new SessionFormatError('owned historical extension requires an ignorable log-only envelope')
   }
   sessionFormatCount(event.seq, 'extension seq')
@@ -36,6 +38,11 @@ export function rewriteSessionFormatExtension(
 ): SessionFormatEvent {
   const policy = input.extensions
   if (policy === undefined) return target
+  if (target.ignorable === undefined
+    && policy.admit(source, input.sourceHeader.version, input.sourceHeader.id) === 'log-only') {
+    admitSessionFormatExtension(source, input)
+    target = { ...target, ignorable: true }
+  }
   const coordinates = {
     sessionId: input.sourceHeader.id,
     fromVersion: input.sourceHeader.version,

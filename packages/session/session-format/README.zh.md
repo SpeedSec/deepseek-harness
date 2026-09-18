@@ -47,7 +47,7 @@ const eventRecords = current.events.map(catalog.encodeCurrentEvent)
 
 可恢复解码器返回已接受的逻辑前缀。编解码器可以丢弃一个格式错误或序号不连续的行及其未提交后缀，但后续成功解码的 `turn/end` 会使原始问题成为致命错误。
 
-显式 `extensions` 还原策略可以校验部署拥有的历史日志事件，并使用每个相邻迁移报告的坐标重写所有者管理的 payload 引用。拥有的事件必须使用带 `ignorable` 的纯日志 envelope。策略不能修改核心拥有的 envelope、替代第一方校验或接纳没有所有者的事件类型。调用方为最终 artifact 校验提供同一策略；Session 内容不能选择策略。
+显式 `extensions` 还原策略可以校验部署拥有的历史日志事件，并使用每个相邻迁移报告的坐标重写所有者管理的 payload 引用。拥有的事件必须使用带 `ignorable` 的纯日志 envelope；显式 `log-only` 接纳可以为不含 surface 字段的历史已知事件补充缺失标记。策略不能以其他方式修改核心拥有的 envelope、替代第一方校验或接纳没有所有者的事件类型。调用方为最终 artifact 校验提供同一策略；Session 内容不能选择策略。
 
 -----
 

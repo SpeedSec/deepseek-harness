@@ -3,6 +3,22 @@ import type { SessionFormatExtensionPolicy } from '@deepseek-ai/dsh-session-form
 import { sessionFormatCatalog } from '../src/index.ts'
 
 describe('trusted historical extension ownership', () => {
+  it('converts only explicitly owned historical log-only events and rejects surface envelopes', () => {
+    const extensions: SessionFormatExtensionPolicy = {
+      fingerprint: 'required-log-owner',
+      admit: event => event.type === 'test/owned' ? 'log-only' : false,
+      mapped() {}, rewrite: event => event, validate() {},
+    }
+    const header = { type: 'session', version: 0, id: 'required-log', createdAt: 1, delegationDepth: 0 }
+    const options = { recovery: 'strict', validation: 'current', extensions } as const
+    const restore = sessionFormatCatalog.createRestore(header, options)
+    restore.decodeRow({ type: 'test/owned', seq: 0, time: 1, data: {} })
+    expect(restore.finish().events[0]?.ignorable).toBe(true)
+    const invalid = sessionFormatCatalog.createRestore(header, options)
+    expect(() => { invalid.decodeRow({ type: 'test/owned', seq: 0, time: 1, data: {}, surfaceOp: 'append' }) }).toThrow(/log-only envelope/)
+    const unknown = sessionFormatCatalog.createRestore(header, options)
+    expect(() => { unknown.decodeRow({ type: 'other/required', seq: 0, time: 1, data: {} }) }).toThrow()
+  })
   it.each([0, 1, 2])('validates owned v%i events across every adjacent edge', (version) => {
     const admitted: number[] = []
     const mapped: number[] = []

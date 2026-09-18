@@ -47,7 +47,7 @@ The `recovery` option selects strict row failure or recoverable suffix handling.
 
 The recoverable decoder returns the accepted logical prefix. A codec may drop one malformed or sequence-gapped row and its uncommitted suffix, but a later decoded `turn/end` makes the original issue fatal.
 
-An explicit `extensions` restore policy can validate deployment-owned historical log events and rewrite owner-managed payload references using coordinates reported by each adjacent migration. Owned events require an `ignorable` log-only envelope. Policies cannot change core-owned envelopes, replace first-party validation, or admit unowned event types. The caller supplies the same policy to final artifact verification; no policy is selected from Session contents.
+An explicit `extensions` restore policy can validate deployment-owned historical log events and rewrite owner-managed payload references using coordinates reported by each adjacent migration. Owned events require an `ignorable` log-only envelope; an explicit `log-only` admission can add the missing marker to a historical owned event without surface fields. Policies cannot otherwise change core-owned envelopes, replace first-party validation, or admit unowned event types. The caller supplies the same policy to final artifact verification; no policy is selected from Session contents.
 
 -----
 
