@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-28-continuable-wait-state-observation.md
-2026-08-28-continuable-wait-state-observation.md: 3e3a984b6f2c776a247822d80384222855a5a26d
-2026-08-28-continuable-wait-state-observation.zh.md: 0d44cd62f7a25328c95aa333884a1808cc38fba1
+2026-08-28-continuable-wait-state-observation.md: 60f1c7a0d964d2a1f4dd8c8b68bed0578e15528b
+2026-08-28-continuable-wait-state-observation.zh.md: 78da12ba3d289fcae89d08e2172f4aaf65aa48b1

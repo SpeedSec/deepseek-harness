@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-等待采用与 Activation 结算相同的状态区分。运行中的 Agent 等待 `whenIdle()` 或 `poke`；空闲但仍驻留的 Activation 只等待 `poke`；已经打开的 disposal 事务则被直接等待。因此每轮循环都会阻塞在尚未发生的状态变化上。
+`ContinuationActivationRegistry` 在拥有驻留图的同时负责状态与等待；continuation manager 只转发观察。等待采用与 Activation 结算相同的状态区分。运行中的 Agent 等待 `whenIdle()` 或 `poke`；空闲但仍驻留的 Activation 只等待 `poke`；Inbox 已经打开的 disposal 事务则被直接等待。因此每轮循环都会阻塞在尚未发生的状态变化上。
 
 超时与调用方取消只会停止观察。它们不会取消 child、改变 inbox 工作或打开 disposal。
 

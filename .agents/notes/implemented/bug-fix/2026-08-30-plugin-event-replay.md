@@ -14,6 +14,10 @@ Restore the existing plugin-event contract. `SessionEvent` accepts only `ignorab
 
 JSONL already preserves the complete event envelope. SQLite schema 20 stores `ignorable` beside the independent `is_packed` discriminator, so scalar and packed rows remain unambiguous. Schema 19 databases are intentionally incompatible under the pre-release SQLite policy; no migration is attempted.
 
+## Alternatives considered
+
+**Accept every unknown event.** This would bypass the explicit ignorable marker and weaken fail-closed reads. Keeping the marker preserves the plugin contract without changing unmarked-event refusal.
+
 ## Consequences
 
 Plugin lifecycle batches survive a cold reload and remain available to the security-research projection. A reader that does not understand an unmarked event still refuses reconstruction instead of silently dropping potentially load-bearing state. Existing schema-19 SQLite files require the matching older build or a fresh database; JSONL artifacts are not rewritten.

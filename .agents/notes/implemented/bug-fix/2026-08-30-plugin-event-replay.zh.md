@@ -14,6 +14,10 @@ security-research 插件使用受支持的 `Session.appendPluginEvent()` 路径�
 
 JSONL 已经保留完整事件 envelope。SQLite schema 20 在独立的 `is_packed` 判别列旁保存 `ignorable`，标量行和打包行仍然明确可区分。按照预发布 SQLite 策略，schema 19 数据库与当前版本不兼容，不尝试迁移。
 
+## 备选方案
+
+**接受所有未知事件。** 这会绕过明确的 ignorable 标记并削弱 fail-closed 读取。保留标记可以维持插件约定，同时继续拒绝未标记事件。
+
 ## 后果
 
 插件生命周期批次可以在冷启动后继续存在，并可由 security-research 投影读取。不理解且未标记的事件仍会拒绝重建，不会静默丢弃可能影响状态的事实。现有 schema-19 SQLite 文件需要匹配的旧版本或新数据库；JSONL 产物不会被改写。

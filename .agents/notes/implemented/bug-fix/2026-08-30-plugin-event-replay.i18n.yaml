@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-plugin-event-replay.md
-2026-08-30-plugin-event-replay.md: de19e808eff71e22ef7748c1208eac501f450d0e
-2026-08-30-plugin-event-replay.zh.md: ff4ee0e2e35474f08657613fd5d2d649b4bb2433
+2026-08-30-plugin-event-replay.md: 88a247e7d41f60cba71392e4a6261f7d833564e1
+2026-08-30-plugin-event-replay.zh.md: 7ed2cf5b2de988abb1eed9fd9d414c7c825ddfdc

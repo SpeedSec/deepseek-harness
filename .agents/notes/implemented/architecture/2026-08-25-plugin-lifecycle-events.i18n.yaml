@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-25-plugin-lifecycle-events.md
-2026-08-25-plugin-lifecycle-events.md: 340f9a7b8de1d1d257848a3c61f64e91b494589c
-2026-08-25-plugin-lifecycle-events.zh.md: 84718a9fd92ae3d0ef80c39888c313ed82869218
+2026-08-25-plugin-lifecycle-events.md: f5bc6b653401c2c20bbebd679fbf5601154ec659
+2026-08-25-plugin-lifecycle-events.zh.md: c903f167bdf51f3d53249e8c02fba02ac42cfd3b

@@ -12,7 +12,7 @@ Racing that resolved promise against the Activation's pending `poke` promise in 
 
 ## Decision
 
-The wait follows the same state distinction as Activation settlement. A running Agent waits for either `whenIdle()` or `poke`; an idle resident Activation waits only for `poke`; an open disposal transaction is awaited directly. Each loop iteration therefore blocks on a state change that has not happened.
+The `ContinuationActivationRegistry` owns status and waiting alongside its residency graph; the continuation manager only forwards observations. The wait follows the same state distinction as Activation settlement. A running Agent waits for either `whenIdle()` or `poke`; an idle resident Activation waits only for `poke`; the Inbox's open disposal transaction is awaited directly. Each loop iteration therefore blocks on a state change that has not happened.
 
 Timeout and caller cancellation stop only the observation. They do not cancel the child, alter inbox work, or open disposal.
 
