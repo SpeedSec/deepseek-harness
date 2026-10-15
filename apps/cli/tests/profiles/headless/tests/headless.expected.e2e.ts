@@ -583,8 +583,8 @@ describe('headless stream-json snapshots', () => {
     `)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('keeps provider comments alive and sends DeepSeek defaults through the one-shot app', async () => {
-    const server = await deepseekDefaultsServer()
+  it('accepts provider comments and sends DeepSeek defaults through the one-shot app', async () => {
+    const server = await deepseekDefaultsServer({ waitForTitleRequest: true })
     try {
       const result = await runLoaderSmoke({
         label: 'DeepSeek adapter defaults headless stream-json snapshot',
@@ -639,8 +639,11 @@ describe('headless stream-json snapshots', () => {
     }
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('keeps the compatibility stream open until the title request arrives', async () => {
-    const server = await deepseekDefaultsServer({ waitForTitleRequest: true, piAiCompatibility: true })
+  it.each([false, true])('keeps the stream open until the title request arrives (pi-ai: %s)', async (piAiCompatibility) => {
+    const server = await deepseekDefaultsServer({
+      waitForTitleRequest: true,
+      ...(piAiCompatibility ? { piAiCompatibility: true } : {}),
+    })
     try {
       const response = await fetch(server.url, {
         method: 'POST',
@@ -666,8 +669,9 @@ describe('headless stream-json snapshots', () => {
           if (chunk.done) break
           body += decoder.decode(chunk.value)
         }
-        expect(body).toContain('data: [DONE]')
-        expect(await title.text()).toContain('data: [DONE]')
+        const terminal = piAiCompatibility ? 'data: [DONE]' : 'event: message_stop'
+        expect(body).toContain(terminal)
+        expect(await title.text()).toContain(terminal)
       } finally {
         await reader.cancel()
       }

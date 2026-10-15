@@ -10,7 +10,7 @@
     baseURL: !!js process.env.DSH_SNAPSHOT_BASE_URL
     thinking: enabled
     reasoningEffort: low
-    streamIdleTimeoutMs: 150
+    # Idle deadlines use fake timers in llm-deepseek/tests/runtime.spec.ts.
 
 - id: agent-loop
   config:
