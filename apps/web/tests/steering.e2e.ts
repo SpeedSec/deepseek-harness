@@ -17,7 +17,7 @@ import {
   compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { openSettings, connectFreshWorkspace, newEnglishPage, pinBrowserClock, pinHostClock, saveFailureShot } from './support.ts'
+import { openSettings, connectFreshWorkspace, newEnglishPage, pinHostClock, saveFailureShot, WEB_FIXTURE_TIME } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/steering', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.v3.jsonl')
@@ -73,21 +73,21 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
   let hostClock: MockInstance<typeof Date.now> | undefined
-  let unpinBrowserClock: (() => void) | undefined
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
     // This scenario types its own messages, so the Host stamps their times: both
     // clocks must read the fixture day or a run across Asia/Shanghai midnight
     // renders the same message with a date prefix.
-    hostClock = pinHostClock()
     scaffold = await launchWebScaffold(MODE === 'record'
       ? {}
       : { replayFixture: FIXTURE, paceMs: REPLAY_PACE_MS, compareReplaySession: true })
     scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
-    unpinBrowserClock = await pinBrowserClock(page)
+    // Playwright's navigation clock log requires unmocked Host wall time.
+    await page.clock.setSystemTime(WEB_FIXTURE_TIME)
+    hostClock = pinHostClock()
     tripwire = watchConsole(page)
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -102,7 +102,6 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     } finally {
       // A failing close (unconsumed fixture, mismatched snapshot) must not
       // leave the pinned clocks running for the suites after this one.
-      unpinBrowserClock?.()
       hostClock?.mockRestore()
     }
   })
@@ -396,11 +395,9 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
   let hostClock: MockInstance<typeof Date.now> | undefined
-  let unpinBrowserClock: (() => void) | undefined
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    hostClock = pinHostClock()
     // The scenario boots a fresh session against the override-only fixture;
     // the replay.override.json sidecar replaces the derived script, so the
     // (deliberately absent) session.jsonl is never read.
@@ -416,7 +413,9 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
     scaffold.ctx.on('session/event', (_session, event) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
-    unpinBrowserClock = await pinBrowserClock(page)
+    // Playwright's navigation clock log requires unmocked Host wall time.
+    await page.clock.setSystemTime(WEB_FIXTURE_TIME)
+    hostClock = pinHostClock()
     tripwire = watchConsole(page)
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -431,7 +430,6 @@ describe('web e2e: empty-draft Cmd+Enter steers the whole queue', () => {
       await browser?.close()
       await scaffold?.close()
     } finally {
-      unpinBrowserClock?.()
       hostClock?.mockRestore()
     }
   })
