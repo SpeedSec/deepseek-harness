@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-15-fork-ci-infrastructure.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-10-15-fork-ci-infrastructure.md
+/agent-note-fork-ci-infrastructure:
+  en: 5dd7dd43e649c682
+  zh: e9b25b20eb7ea328
+/agent-note-fork-ci-infrastructure/problem:
+  en: 49d72d683780d1b1
+  zh: 4a7837ce287fc784
+/agent-note-fork-ci-infrastructure/decision:
+  en: e55e2afeb9cf459a
+  zh: 2303df1f23bd1743
+/agent-note-fork-ci-infrastructure/alternatives-considered:
+  en: e906a85b36b80b21
+  zh: e67bde41793647c5
+/agent-note-fork-ci-infrastructure/consequences:
+  en: c83d6bf052469bf1
+  zh: 5f7be10db08304be

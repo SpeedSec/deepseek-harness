@@ -6,11 +6,11 @@
  * @module @deepseek-ai/dsh-llm/assembler
  */
 
+import { brandString } from '@deepseek-ai/dsh-brand'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { ToolCallId } from './brand.ts'
-import { HarnessError, MALFORMED_RESPONSE_CODE } from './error.ts'
-import { assertNever } from './never.ts'
-import { createMessage } from './message.ts'
-import type { Message, MessageSource } from './message.ts'
+import { createAssistantMessage } from './message.ts'
+import type { AssistantMessage, ModelMessageSource } from './message.ts'
 import type { ContentBlock, FinishReason, ReplayEnvelope, StreamChunk, TokenUsage } from './types.ts'
 
 interface PartialBlock {
@@ -105,16 +105,16 @@ export class BlockAssembler {
     return partial
   }
 
-  private assemble(partial: PartialBlock): ContentBlock {
-    const block = partial.block
-    if (block?.type === 'tool-call') requireToolCallIdentity(block.id, block.name)
-    if (block) return block
+  private assemble(partial: PartialBlock, index: number): ContentBlock {
+    if (partial.block) return partial.block
     switch (partial.blockType) {
       case 'text': return { type: 'text', text: partial.text }
       case 'reasoning': return { type: 'reasoning', text: partial.text }
-      case 'tool-call': {
-        const identity = requireToolCallIdentity(partial.toolCallId, partial.toolCallName)
-        return { type: 'tool-call', ...identity, arguments: partial.toolCallArguments }
+      case 'tool-call': return {
+        type: 'tool-call',
+        id: partial.toolCallId ?? brandString<ToolCallId>(`call-${index}`),
+        name: partial.toolCallName ?? '',
+        arguments: partial.toolCallArguments,
       }
       default: throw new Error(`cannot assemble incomplete block of type "${partial.blockType}"`)
     }
@@ -133,18 +133,17 @@ export class BlockAssembler {
    * and replay metadata both derive from this result, so they cannot disagree.
    */
   private assembled(): { blocks: ContentBlock[]; replay: ReplayEnvelope | undefined } {
-    const partials = this.order.map(index => this.mustGet(index))
+    const all = this.order.map(index => this.assemble(this.mustGet(index), index))
     const kept = this.finish.kind === 'max-tokens'
-      ? partials.map(partial => (partial.block?.type ?? partial.blockType) !== 'tool-call')
+      ? all.map(block => block.type !== 'tool-call')
       : undefined
-    const blocks = partials.flatMap((partial, position) =>
-      kept?.[position] === false ? [] : [this.assemble(partial)])
+    const blocks = kept === undefined ? all : all.filter((_, position) => kept[position])
     const envelope = this._replayState
     if (envelope?.blocks === undefined) return { blocks, replay: envelope }
-    if (envelope.blocks.length !== partials.length) return { blocks, replay: undefined }
+    if (envelope.blocks.length !== all.length) return { blocks, replay: undefined }
     return {
       blocks,
-      replay: kept === undefined || blocks.length === partials.length
+      replay: kept === undefined || blocks.length === all.length
         ? envelope
         : { response: envelope.response, blocks: envelope.blocks.filter((_, position) => kept[position]) },
     }
@@ -173,7 +172,7 @@ export class BlockAssembler {
         const partial = this.mustGet(index)
         const type = partial.block?.type ?? partial.blockType
         if (type !== 'text' && type !== 'reasoning') return undefined
-        return this.assemble(partial)
+        return this.assemble(partial, index)
       })
       .filter((block): block is ContentBlock =>
         (block?.type === 'text' || block?.type === 'reasoning') && block.text.trim() !== '')
@@ -200,24 +199,10 @@ export class BlockAssembler {
 
   /**
    * The assembled assistant message.
-   * @param source - producer attribution for the assembled message.
+   * @param source - provider/model attribution (without the `kind` tag) for the assembled message.
    * @returns a frozen assistant-role message over `blocks()` (same open-block assembly rules).
    */
-  message(source: MessageSource = { kind: 'plugin', plugin: 'dsh-llm/assembler' }): Message {
-    return createMessage({ role: 'assistant', content: this.blocks(), source })
+  message(source: Omit<ModelMessageSource, 'kind'>): AssistantMessage {
+    return createAssistantMessage({ content: this.blocks(), source })
   }
-}
-
-/** Reject a provider tool-call identity that cannot be executed or correlated. */
-function requireToolCallIdentity(
-  id: ToolCallId | undefined,
-  name: string | undefined,
-): { id: ToolCallId; name: string } {
-  if (id === undefined || id.trim() === '') {
-    throw new HarnessError('model response contained a tool call without a non-empty id', MALFORMED_RESPONSE_CODE)
-  }
-  if (name === undefined || name.trim() === '') {
-    throw new HarnessError('model response contained a tool call without a non-empty name', MALFORMED_RESPONSE_CODE)
-  }
-  return { id, name }
 }

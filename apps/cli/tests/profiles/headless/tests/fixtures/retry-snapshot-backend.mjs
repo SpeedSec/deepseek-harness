@@ -1,7 +1,6 @@
 /** Deterministic provider adapter for the headless retry-policy snapshot. */
 
 import {
-  CallId,
   LlmAdapter,
   LlmError,
   resolveRetryPolicy,
@@ -13,7 +12,7 @@ class RetrySnapshotAdapter extends LlmAdapter {
   policy = resolveRetryPolicy({
     mode: 'normal',
     maxRetries: 1,
-    retryableCodes: ['MALFORMED_RESPONSE', 'RATE_LIMIT'],
+    retryableCodes: ['RATE_LIMIT'],
     backoff: { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 },
   }, 'retry-snapshot-backend.retryPolicy')
 
@@ -26,12 +25,6 @@ class RetrySnapshotAdapter extends LlmAdapter {
     this.requests++
     if (this.requests === 1) {
       this.firstMessages = messages
-      if (messages.includes('malformed tool identity')) {
-        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-        yield { type: 'tool-call-delta', index: 0, id: CallId('broken-call'), name: '', argumentsDelta: '{}' }
-        yield { type: 'finish', reason: { kind: 'tool-calls' } }
-        return
-      }
       throw new LlmError('snapshot transient failure', 'RATE_LIMIT', { status: 429 })
     }
     if (this.requests === 2 && messages !== this.firstMessages) {
