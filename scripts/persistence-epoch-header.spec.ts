@@ -6,6 +6,9 @@ import { extractPersistenceSchema } from './persistence-schema.ts'
 import { classifyPersistenceChange } from './persistence-changes.ts'
 import { canonicalizeSchema, schemaDigest } from './persistence-schema-model.ts'
 import type { SchemaNode } from './persistence-schema-model.ts'
+import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from './coverage-partitions.ts'
+
+const testTimeout = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 60_000
 
 function property(nodes: readonly SchemaNode[], index: number, name: string): number {
   const node = nodes[index]
@@ -15,7 +18,7 @@ function property(nodes: readonly SchemaNode[], index: number, name: string): nu
   return field.type
 }
 
-it('requires a version bump before request headers can carry retired system text', { timeout: 60_000 }, () => {
+it('requires a version bump before request headers can carry retired system text', { timeout: testTimeout }, () => {
   const inventory = extractPersistenceSchema(resolve(import.meta.dirname, '..'))
   const before = inventory.roots.find(root => root.key === 'event:request/header')
   if (before === undefined) throw new Error('generated schema omits request/header')
