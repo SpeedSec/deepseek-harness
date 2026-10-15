@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   policy:
+    if: github.event.repository.fork != true || vars.DSH_UPSTREAM_PROJECT_AUTOMATION == 'true'
     name: Issue policy
     runs-on: ubuntu-latest
     steps:
