@@ -52,6 +52,12 @@
             - text: 文本
             - checkbox "图片" [checked]
             - text: 图片
+          - group "思考等级 1":
+            - text: 思考等级
+            - combobox "思考等级 1":
+              - option "继承模型目录" [selected]
+              - option "禁用"
+              - option "自定义等级"
           - button "添加模型"
       - button "取消"
       - button "保存"

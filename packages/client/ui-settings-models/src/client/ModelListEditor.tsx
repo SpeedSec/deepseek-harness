@@ -18,11 +18,14 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-api-remotes/client'
 import { Button, IconPlusOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { formatCapacity, parseCapacity } from './DeepSeekModelsEditor.tsx'
+import { formatCapacity, modelDrafts, parseCapacity, validateDeepSeekModels } from './DeepSeekModelsEditor.tsx'
+import type { DeepSeekModelsValidationFailure } from './DeepSeekModelsEditor.tsx'
 import type { ModelsOperations } from './operations.ts'
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor.tsx'
 import type { en } from './locales.ts'
 import { ModelRow } from './ModelRow.tsx'
+import { reasoningEffortsFailure } from './reasoning-efforts.ts'
+import type { ReasoningEffortsFailure } from './reasoning-efforts.ts'
 import styles from './ModelsSection.module.css'
 
 /**
@@ -30,6 +33,24 @@ import styles from './ModelsSection.module.css'
  * edit rather than being dropped by a rebuild.
  */
 export type ModelDraft = DeepSeekModelDraft
+
+/**
+ * Validate pi-ai model rows, including reasoning declarations omitted by the schema's structural checks.
+ * @param value - drafted model array, or undefined while inheriting the catalog.
+ * @returns the invalid row and localized failure key, or undefined when valid.
+ */
+export function validatePiAiModels(value: unknown): {
+  index: number
+  key: DeepSeekModelsValidationFailure['key'] | ReasoningEffortsFailure
+} | undefined {
+  const commonFailure = validateDeepSeekModels(value)
+  if (commonFailure !== undefined) return commonFailure
+  for (const [index, model] of modelDrafts(value).entries()) {
+    const key = reasoningEffortsFailure(model['reasoningEfforts'])
+    if (key !== undefined) return { index, key }
+  }
+  return undefined
+}
 
 /** A row's text field, or the empty string when unset or not a string. */
 function textOf(model: ModelDraft, key: string): string {

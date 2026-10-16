@@ -55,7 +55,7 @@ export class ConfigEditor extends Service {
     const composed = new Map<string, EntryOptions>()
     if (entries.some(entry => !overridden.has(entry.options.id))) {
       for (const row of flatten(composeEntries([...loaded.layers.map(layer => layer.patches), loaded.patches]))) {
-        if (!composed.has(row.id)) composed.set(row.id, row)
+        composed.set(row.id, row)
       }
     }
     return entries.map(entry => ({
@@ -75,7 +75,8 @@ export class ConfigEditor extends Service {
       const rest = { ...patch }; Reflect.deleteProperty(rest, 'config')
       return rest
     })
-    const row = flatten(composeEntries([...loaded.layers.map(layer => layer.patches), patches])).find(row => row.id === entry.options.id)
+    const row = flatten(composeEntries([...loaded.layers.map(layer => layer.patches), patches]))
+      .findLast(row => row.id === entry.options.id)
     return structuredClone((row?.config ?? {}) as Record<string, unknown>)
   }
 
@@ -117,6 +118,9 @@ export class ConfigEditor extends Service {
         const index = document.contents.items.findLastIndex((item, index) => isMap(item)
           && document.getIn([index, 'id']) === entry.options.id && !item.has('insert')
           && (!item.has('name') || document.getIn([index, 'name']) === entry.options.name))
+        // A later insert supersedes an earlier config override, so the edit must follow that declaration.
+        const redeclared = (document.toJS() as PatchOptions[]).slice(index + 1).some(patch => patch.insert !== undefined
+          && flatten(patch.insert).some(row => row.id === entry.options.id))
         if (isDeepStrictEqual(next, inherited)) {
           for (let index = document.contents.items.length - 1; index >= 0; index--) {
             const row = document.contents.items[index]
@@ -124,8 +128,9 @@ export class ConfigEditor extends Service {
             row.delete('config')
             if (row.items.length === Number(row.has('id')) + Number(row.has('name'))) document.delete(index)
           }
-        } else if (index < 0) document.add(document.createNode({ id: entry.options.id, name: entry.options.name, config: next }))
-        else document.setIn([index, 'config'], document.createNode(next))
+        } else if (index < 0 || redeclared) {
+          document.add(document.createNode({ id: entry.options.id, name: entry.options.name, config: next }))
+        } else document.setIn([index, 'config'], document.createNode(next))
         visit(document, { Map(_key, node) {
           if (node.items.length !== 1 || typeof node.get('__jsExpr') !== 'string') return
           const expression = new Scalar(node.get('__jsExpr'))
@@ -135,7 +140,7 @@ export class ConfigEditor extends Service {
         const profile = this.ownerContext.profileContext
         const loaded = loadProfileDirectory('dsh', profile.dir, profile.installAnchor)
         const patches = readProfilePatches('dsh', profile, { ...loaded, patches: yaml.load(String(document), { schema: entryListSchema }) as PatchOptions[] })
-        const effective = flatten(composeEntries([patches])).find(row => row.id === entry.options.id)
+        const effective = flatten(composeEntries([patches])).findLast(row => row.id === entry.options.id)
         if (!isDeepStrictEqual(effective?.config ?? {}, next)) {
           throw new Error(`Configuration for "${entry.options.id}" is overridden by a home patch or command-line overlay`)
         }

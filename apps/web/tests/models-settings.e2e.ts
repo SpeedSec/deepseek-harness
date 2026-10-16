@@ -266,6 +266,32 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await custom.getByRole('button', { name: '模型选项 1' }).click()
     expect(await custom.getByRole('group', { name: '输入类型 1' }).getByRole('checkbox', { name: '图片' }).isChecked()).toBe(false)
     await custom.getByRole('group', { name: '输入类型 1' }).getByRole('checkbox', { name: '图片' }).check()
+    await custom.getByRole('combobox', { name: '思考等级 1', exact: true }).selectOption('custom')
+    const create = custom.getByRole('button', { name: '创建提供商', exact: true })
+    expect(await create.isEnabled()).toBe(false)
+    const reasoning = custom.getByRole('group', { name: '思考等级 1', exact: true })
+    await reasoning.getByRole('checkbox', { name: 'off', exact: true }).check()
+    expect(await create.isEnabled()).toBe(false)
+    await reasoning.getByRole('checkbox', { name: 'low', exact: true }).check()
+    await reasoning.getByRole('checkbox', { name: 'max', exact: true }).check()
+    await reasoning.getByRole('textbox', { name: '发送值 max 1', exact: true }).fill('xhigh')
+    await reasoning.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: fileURLToPath(new URL('../../../.artifacts/model-reasoning-desktop.png', import.meta.url)) })
+    try {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await reasoning.scrollIntoViewIfNeeded()
+      const layout = await reasoning.evaluate((node) => {
+        const parent = node.getBoundingClientRect()
+        return [...node.querySelectorAll('input, select')].every((input) => {
+          const rect = input.getBoundingClientRect()
+          return rect.left >= parent.left && rect.right <= parent.right + 1 && rect.right <= window.innerWidth
+        })
+      })
+      expect(layout).toBe(true)
+      await page.screenshot({ path: fileURLToPath(new URL('../../../.artifacts/model-reasoning-mobile.png', import.meta.url)) })
+    } finally {
+      await page.setViewportSize({ width: 1680, height: 1000 })
+    }
     await custom.getByRole('button', { name: '创建提供商', exact: true }).click()
 
     const row = dialog.getByText('Acme Gateway', { exact: true }).first()
@@ -274,7 +300,10 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(document).toContain('acme-gateway:')
     await expect(scaffold.ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')).resolves.toMatchObject({
       inputModalities: ['text', 'image'],
+      reasoning: { efforts: [{ id: 'off' }, { id: 'low' }, { id: 'max' }] },
     })
+    expect(document).toContain('reasoningEfforts:')
+    expect(document).toContain('max: xhigh')
 
     // The tag follows the adapter's installed catalog: this route is in no
     // catalog, while minimax-cn is — even though both now have profiles.
@@ -302,6 +331,9 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     expect(await name.inputValue()).toBe('Acme Gateway')
     await dialog.getByRole('button', { name: '模型选项 1' }).click()
     expect(await dialog.getByRole('group', { name: '输入类型 1' }).getByRole('checkbox', { name: '图片' }).isChecked()).toBe(true)
+    expect(await dialog.getByRole('combobox', { name: '思考等级 1', exact: true }).inputValue()).toBe('custom')
+    expect(await dialog.getByRole('textbox', { name: '发送值 off 1', exact: true }).inputValue()).toBe('')
+    expect(await dialog.getByRole('textbox', { name: '发送值 max 1', exact: true }).inputValue()).toBe('xhigh')
     await assertModelInputLayout(page, dialog)
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(DECLARED_EDIT_EXPECTED, snapshot, MODE)
@@ -325,6 +357,28 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await expect(scaffold.ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')).resolves.toMatchObject({
       inputModalities: ['text'],
     })
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('disables model reasoning and removes its declaration when restoring catalog inheritance', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-reasoning'))
+    const dialog = page.getByRole('dialog', { name: '设置' })
+    const patchPath = join(scaffold.harnessHome, 'profiles', 'scaffold', 'cordis.patch.yml')
+    for (const mode of ['disabled', 'inherit']) {
+      await dialog.getByRole('button', { name: '编辑 Acme 网关 (acme-gateway)' }).click()
+      await dialog.getByText('自定义设置').click()
+      await dialog.getByRole('button', { name: '模型选项 1' }).click()
+      const select = dialog.getByRole('combobox', { name: '思考等级 1', exact: true })
+      expect(await select.inputValue()).toBe(mode === 'disabled' ? 'custom' : 'disabled')
+      await select.selectOption(mode)
+      await dialog.getByRole('button', { name: '保存', exact: true }).click()
+      await expect.poll(async () => select.count(), { timeout: 10_000 }).toBe(0)
+      const info = await scaffold.ctx.llm.resolveModelInfo('acme-gateway', 'acme-large')
+      expect(info.reasoning).toBeUndefined()
+      const document = await readFile(patchPath, 'utf8')
+      if (mode === 'disabled') expect(document).toContain('reasoningEfforts: false')
+      else expect(document).not.toContain('reasoningEfforts:')
+    }
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 

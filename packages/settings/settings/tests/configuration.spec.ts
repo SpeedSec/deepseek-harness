@@ -45,6 +45,66 @@ it('refuses an edit shadowed by a higher home layer', async () => {
   expect(ctx.agentDefaultModel.currentSelection().model).toBe('home')
 }, 15_000)
 
+it.each([false, true])('edits the last declaration and resets with an earlier override: %s', async (earlierOverride) => {
+  const { ctx, profile, start } = await fixture({ hmr: false })
+  await ctx.fiber.dispose()
+  writeFileSync(profile.patchPath, JSON.stringify([
+    ...earlierOverride ? [{ id: 'default-model', config: { provider: 'test', model: 'earlier-selection' } }] : [],
+    { insert: [
+      { id: 'default-model', name: 'cordis:model', config: { provider: 'test', model: 'profile-default' } },
+    ] },
+  ]))
+  const restored = await start()
+  expect(restored.agentDefaultModel.currentSelection().model).toBe('profile-default')
+  expect(restored.settings.describe().find(row => row.ns === 'default-model')!.base)
+    .toEqual({ provider: 'test', model: 'profile-default' })
+  await restored.settings.update('default-model', { model: 'selected' })
+  expect(restored.agentDefaultModel.currentSelection().model).toBe('selected')
+  await restored.fiber.dispose()
+  const restarted = await start()
+  expect(restarted.agentDefaultModel.currentSelection().model).toBe('selected')
+  await restarted.settings.replace('default-model', {})
+  expect(restarted.agentDefaultModel.currentSelection().model).toBe('profile-default')
+  expect(parse(readFileSync(profile.patchPath, 'utf8'))).toEqual([{ insert: [
+    { id: 'default-model', name: 'cordis:model', config: { provider: 'test', model: 'profile-default' } },
+  ] }])
+})
+
+it.each(['id', 'insert'])('edits a repeated declaration using a YAML %s alias', async (reference) => {
+  const { ctx, profile, start } = await fixture({ hmr: false })
+  await ctx.fiber.dispose()
+  const rows = '  - id: &modelId default-model\n    name: cordis:model\n    config: { provider: test, model: profile-default }\n'
+  const repeated = reference === 'insert'
+    ? '- insert: *modelRows\n'
+    : '- insert:\n  - id: *modelId\n    name: cordis:model\n    config: { provider: test, model: profile-default }\n'
+  writeFileSync(profile.patchPath, '- insert: &modelRows\n' + rows
+    + '- id: default-model\n  config: { provider: test, model: earlier-selection }\n' + repeated)
+  const restored = await start()
+  const before = parse(readFileSync(profile.patchPath, 'utf8')) as unknown[]
+  await restored.settings.update('default-model', { model: 'selected' })
+  expect(restored.agentDefaultModel.currentSelection().model).toBe('selected')
+  await restored.fiber.dispose()
+  const restarted = await start()
+  expect(restarted.agentDefaultModel.currentSelection().model).toBe('selected')
+  await restarted.settings.replace('default-model', {})
+  expect(restarted.agentDefaultModel.currentSelection().model).toBe('profile-default')
+  expect(parse(readFileSync(profile.patchPath, 'utf8'))).toEqual([before[0], before[2]])
+})
+
+it('refuses an edit shadowed by a command-line overlay even for a repeated declaration', async () => {
+  const { ctx, profile, start } = await fixture({ hmr: false })
+  await ctx.fiber.dispose()
+  writeFileSync(profile.patchPath, JSON.stringify([{ insert: [
+    { id: 'default-model', name: 'cordis:model', config: { provider: 'test', model: 'profile-default' } },
+  ] }]))
+  Object.assign(profile, { overlays: [{ id: 'default-model', config: { provider: 'test', model: 'command-line' } }] })
+  const restored = await start()
+  const before = readFileSync(profile.patchPath, 'utf8')
+  await expect(restored.settings.update('default-model', { model: 'selected' })).rejects.toThrow('overridden')
+  expect(readFileSync(profile.patchPath, 'utf8')).toBe(before)
+  expect(restored.agentDefaultModel.currentSelection().model).toBe('command-line')
+})
+
 it('serializes concurrent writes and refuses stale revisions after external changes', async () => {
   const { ctx, profile } = await fixture()
   const revision = ctx.settings.describe().find(row => row.ns === 'first')!.revision

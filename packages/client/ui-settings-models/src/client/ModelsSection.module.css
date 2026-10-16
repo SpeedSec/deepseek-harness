@@ -543,6 +543,33 @@
   line-height: 18px;
 }
 
+.modelReasoning {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.modelReasoning legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.reasoningLevels {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.reasoningLevel {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  min-height: 32px;
+  gap: 8px;
+}
+
 .modelEmpty {
   padding: 12px;
   border: 1px dashed var(--dsw-alias-border-l3);

@@ -7,6 +7,7 @@ import {
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor.tsx'
 import type { ModelsKey } from './locales.ts'
 import { ModelInputTypes } from './ModelInputTypes.tsx'
+import { ModelReasoningEfforts } from './ModelReasoningEfforts.tsx'
 import styles from './ModelsSection.module.css'
 
 /** A capacity's editable text and adapter-specific inherited hint. */
@@ -37,7 +38,7 @@ interface ModelRowProps {
 }
 
 /**
- * Render consistent model identity, capacity, and input-type controls.
+ * Render shared model fields and adapter-specific capability controls.
  * @param props - drafted fields and their owning editor's actions.
  * @returns one expandable model entry.
  */
@@ -106,6 +107,9 @@ export function ModelRow(props: ModelRowProps): ReactNode {
               model={model} field={props.inputField} position={position}
               fallback={props.inputFallback} disabled={disabled || props.inputLoading === true} t={t} onChange={props.onChange}
             />
+            {props.inputField === 'input'
+              ? <ModelReasoningEfforts model={model} position={position} disabled={disabled} t={t} onChange={props.onChange} />
+              : null}
           </div>
         )
         : null}

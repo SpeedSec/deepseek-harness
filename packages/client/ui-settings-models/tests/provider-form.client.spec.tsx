@@ -265,6 +265,80 @@ describe('protocolChoices', () => {
 })
 
 describe('model list editing', () => {
+  it('edits reasoning mappings while preserving neighboring declarations and compatibility fields', async () => {
+    const neighbor = { id: 'other', reasoningEfforts: false, input: ['image'] }
+    const { mutate } = await mountSection({
+      providers: { openai: { models: [
+        { id: 'thinker', reasoningEfforts: { off: 'none', high: 'strong' }, compat: { thinkingFormat: 'deepseek' } },
+        neighbor,
+      ] } },
+    })
+    openEditor('openai')
+    expandModel(1)
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: `${en.modelReasoning} 1` }).value).toBe('custom')
+    expect(screen.getByRole<HTMLInputElement>('textbox', { name: `${en.modelReasoningWire} high 1` }).value).toBe('strong')
+    fireEvent.change(screen.getByRole('textbox', { name: `${en.modelReasoningWire} off 1` }), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'max' }))
+    fireEvent.change(screen.getByRole('textbox', { name: `${en.modelReasoningWire} max 1` }), { target: { value: 'ultra' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    expect(firstMutate(mutate).ops).toEqual([{
+      op: 'set', path: ['providers', 'openai', 'models'], value: [
+        { id: 'thinker', reasoningEfforts: { off: null, high: 'strong', max: 'ultra' }, compat: { thinkingFormat: 'deepseek' } },
+        neighbor,
+      ],
+    }])
+  })
+
+  it.each([
+    ['inherit', { id: 'thinker' }],
+    ['disabled', { id: 'thinker', reasoningEfforts: false }],
+  ])('persists the reasoning mode %s without rewriting the provider', async (mode, expected) => {
+    const { mutate } = await mountSection({
+      providers: { openai: { models: [{ id: 'thinker', reasoningEfforts: { high: 'strong' } }] } },
+    })
+    openEditor('openai')
+    expandModel(1)
+    fireEvent.change(screen.getByRole('combobox', { name: `${en.modelReasoning} 1` }), { target: { value: mode } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    expect(firstMutate(mutate).ops).toEqual([{
+      op: 'set', path: ['providers', 'openai', 'models'], value: [expected],
+    }])
+  })
+
+  it('retains absent, disabled, and custom reasoning declarations when another field is edited', async () => {
+    const models = [
+      { id: 'inherit' },
+      { id: 'disabled', reasoningEfforts: false },
+      { id: 'custom', reasoningEfforts: { off: null, high: 'ultra' }, compat: { supportsDeveloperRole: false } },
+    ]
+    const { mutate } = await mountSection({ providers: { openai: { models } } })
+    openEditor('openai')
+    expandModel(3)
+    expect(mutate).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText(`${en.modelName} 1`), { target: { value: 'Renamed' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual([{ ...models[0], name: 'Renamed' }, models[1], models[2]])
+  })
+
+  it('refuses invalid persisted reasoning and permits explicit repair', async () => {
+    const { mutate } = await mountSection({
+      providers: { openai: { models: [{ id: 'thinker', reasoningEfforts: { high: null } }] } },
+    })
+    openEditor('openai')
+    expandModel(1)
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+    expect(screen.getByText(`${en.model} 1: ${en.modelReasoningWireInvalid}`)).toBeTruthy()
+    buttonNamed(en.apply).click()
+    expect(mutate).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByRole('textbox', { name: `${en.modelReasoningWire} high 1` }), { target: { value: 'strong' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    expect(firstMutate(mutate).ops[0]?.value).toEqual([{ id: 'thinker', reasoningEfforts: { high: 'strong' } }])
+  })
+
   it('changes image input without rewriting a neighboring model declaration', async () => {
     const neighbor = { id: 'vision', input: ['image'], name: 'Kept vision model' }
     const { mutate } = await mountSection({
@@ -860,6 +934,37 @@ describe('hand-declared providers', () => {
     )
     return { ...scripted, onClose }
   }
+
+  it('creates reasoning mappings only after selecting a thinking level with a nonempty wire value', async () => {
+    const { mutate, onClose } = mountCard()
+    fireEvent.change(screen.getByLabelText(en.customRoute), { target: { value: 'acme' } })
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'https://acme.example/v1' } })
+    fireEvent.click(screen.getByRole('button', { name: en.addModel }))
+    fireEvent.change(screen.getByLabelText(`${en.modelId} 1`), { target: { value: 'thinker' } })
+    expandModel(1)
+    fireEvent.change(screen.getByRole('combobox', { name: `${en.modelReasoning} 1` }), { target: { value: 'custom' } })
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'off' }))
+    expect(screen.getByText(`${en.model} 1: ${en.modelReasoningLevelRequired}`)).toBeTruthy()
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'max' }))
+    const wire = screen.getByRole('textbox', { name: `${en.modelReasoningWire} max 1` })
+    fireEvent.change(wire, { target: { value: '' } })
+    expect(screen.getByText(`${en.model} 1: ${en.modelReasoningWireInvalid}`)).toBeTruthy()
+    expect(buttonNamed(en.create).disabled).toBe(true)
+    buttonNamed(en.create).click()
+    expect(mutate).not.toHaveBeenCalled()
+    fireEvent.change(wire, { target: { value: 'ultra' } })
+    fireEvent.click(screen.getByText(en.create))
+    await waitFor(() => { expect(onClose).toHaveBeenCalledWith(true) })
+    expect(firstMutate(mutate)).toEqual({
+      ns: 'llm-pi-ai', expectedRevision: 7,
+      ops: [{ op: 'set', path: ['providers', 'acme'], value: {
+        api: 'openai-completions', baseURL: 'https://acme.example/v1',
+        models: [{ id: 'thinker', reasoningEfforts: { off: null, max: 'ultra' } }],
+      } }],
+    })
+  })
 
   it('creates a custom provider without changing the default model', async () => {
     const { face, mutate, set, onClose } = mountCard()

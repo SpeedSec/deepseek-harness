@@ -9,12 +9,13 @@
 //
 // Zero model calls: no replay fixture mounts, so a stray stream fails loud.
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import yaml from 'js-yaml'
 import {
   SESSION_FORMAT_VERSION, SessionId as sessionId, type SessionEvent, type SessionHeader, type SessionId,
 } from '@deepseek-ai/dsh-session'
@@ -230,6 +231,13 @@ describe('web e2e: agent-preset selection', () => {
     scaffold = await launchWebScaffold({
       agentPresets: { default: 'standard', definitions: [{ id: REFUSING_ID, name: 'Refusing mode', description: 'Refuses to start.', plugins: [{ name: pathToFileURL(join(fixtureRoot, REFUSING_ID, 'refuses.mjs')).href }] }] },
     })
+    // Profiles may repeat a bundle row; form edits must address the declaration Loader mounts.
+    const patchPath = join(scaffold.harnessHome, 'profiles', 'scaffold', 'cordis.patch.yml')
+    const patches = yaml.load(await readFile(patchPath, 'utf8')) as object[]
+    patches.push({ insert: [{
+      id: 'agent-preset-registry', name: '@deepseek-ai/dsh-agent-preset-registry', config: { default: 'standard' },
+    }] })
+    await writeFile(patchPath, yaml.dump(patches))
     // A resumed session runs what it was created with; seeding one that
     // records `minimal` is what makes the header label a claim about the
     // session rather than an echo of the current default.

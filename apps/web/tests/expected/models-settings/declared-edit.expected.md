@@ -59,6 +59,34 @@
             - text: 文本
             - checkbox "图片" [checked]
             - text: 图片
+          - group "思考等级 1":
+            - text: 思考等级
+            - combobox "思考等级 1":
+              - option "继承模型目录"
+              - option "禁用"
+              - option "自定义等级" [selected]
+            - checkbox "off" [checked]
+            - text: "off"
+            - textbox "发送值 off 1":
+              - /placeholder: 不发送参数
+            - checkbox "minimal"
+            - text: minimal
+            - checkbox "low" [checked]
+            - text: low
+            - textbox "发送值 low 1":
+              - /placeholder: low
+              - text: low
+            - checkbox "medium"
+            - text: medium
+            - checkbox "high"
+            - text: high
+            - checkbox "xhigh"
+            - text: xhigh
+            - checkbox "max" [checked]
+            - text: max
+            - textbox "发送值 max 1":
+              - /placeholder: max
+              - text: xhigh
           - button "添加模型"
       - button "取消"
       - button "保存"
